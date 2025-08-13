@@ -26,12 +26,42 @@ EOF
 
 
 
+# Check if directory needs scanning based on mtime
+needs_scan() {
+    local target_dir="$1"
+    local scan_file="$target_dir/.freight/scan.json"
+    
+    # Always scan if no previous scan exists
+    [ ! -f "$scan_file" ] && return 0
+    
+    # Get directory mtime (in seconds since epoch)
+    local dir_mtime
+    dir_mtime=$(stat -c %Y "$target_dir" 2>/dev/null || stat -f %m "$target_dir" 2>/dev/null || echo "0")
+    
+    # Get last scan's directory mtime from JSON
+    local last_dir_mtime
+    last_dir_mtime=$(jq -r '.directory_mtime // empty' "$scan_file" 2>/dev/null || echo "")
+    
+    # If no mtime in scan file, assume we need to rescan
+    [ -z "$last_dir_mtime" ] && return 0
+    
+    # Compare mtimes - if directory is newer, we need to scan
+    [ "$dir_mtime" -gt "$last_dir_mtime" ] && return 0
+    
+    # Directory unchanged
+    return 1
+}
+
 # Scan a single directory
 scan_directory() {
     local target_dir="$1"
     local freight_dir="$target_dir/.freight"
     
     mkdir -p "$freight_dir"
+    
+    # Get directory mtime
+    local dir_mtime
+    dir_mtime=$(stat -c %Y "$target_dir" 2>/dev/null || stat -f %m "$target_dir" 2>/dev/null || echo "0")
     
     # Get directory size and file count
     local size_bytes
@@ -40,8 +70,8 @@ scan_directory() {
     local file_count
     file_count=$(find "$target_dir" -type f -not -path "$freight_dir/*" | wc -l)
     
-    # Create JSON log
-    create_scan_json "$target_dir" "$size_bytes" "$file_count" "$SCRIPT_NAME" "$VERSION" \
+    # Create JSON log with mtime
+    create_scan_json "$target_dir" "$size_bytes" "$file_count" "$SCRIPT_NAME" "$VERSION" "$dir_mtime" \
         > "$freight_dir/scan.json"
     
     echo "$size_bytes"
@@ -79,19 +109,31 @@ main() {
     local current=0
     
     # Scan each directory
+    local skipped=0
     for dir in "${subdirs[@]}"; do
         current=$((current + 1))
         local dir_name
         dir_name=$(basename "$dir")
         
-        show_progress "$current" "${#subdirs[@]}" "Scanning: $dir_name"
+        show_progress "$current" "${#subdirs[@]}" "Checking: $dir_name"
         
-        local dir_size
-        if dir_size=$(scan_directory "$dir"); then
-            total_bytes=$((total_bytes + dir_size))
-            printf " ${GREEN}✓${NC}"
+        # Check if directory needs scanning
+        if needs_scan "$dir"; then
+            printf " [SCAN]"
+            local dir_size
+            if dir_size=$(scan_directory "$dir"); then
+                total_bytes=$((total_bytes + dir_size))
+                printf " ${GREEN}✓${NC}"
+            else
+                printf " ${RED}✗${NC}"
+            fi
         else
-            printf " ${RED}✗${NC}"
+            # Directory unchanged, get size from existing scan
+            local existing_size
+            existing_size=$(jq -r '.size_bytes // 0' "$dir/.freight/scan.json" 2>/dev/null || echo "0")
+            total_bytes=$((total_bytes + existing_size))
+            skipped=$((skipped + 1))
+            printf " ${YELLOW}↻${NC}"
         fi
     done
     
@@ -106,6 +148,9 @@ main() {
     
     log_success "Scan completed!"
     log_info "Total: $(bytes_to_human "$total_bytes") across ${#subdirs[@]} directories"
+    if [ "$skipped" -gt 0 ]; then
+        log_info "Skipped $skipped unchanged directories (mtime optimization)"
+    fi
 }
 
 main "$@"

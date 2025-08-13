@@ -57,6 +57,17 @@ class ScanResult:
         """Returns scan timestamp"""
         return self.scan_data.get('scan_time')
     
+    @property
+    def directory_mtime(self) -> Optional[str]:
+        """Returns directory modification time"""
+        mtime_epoch = self.scan_data.get('directory_mtime')
+        if mtime_epoch:
+            try:
+                return datetime.fromtimestamp(int(mtime_epoch), timezone.utc).strftime('%Y-%m-%d')
+            except (ValueError, TypeError):
+                return None
+        return None
+    
     def format_size(self) -> str:
         """Format bytes to human readable format"""
         if not self.has_scan:
@@ -152,8 +163,8 @@ class FreightOrchestrator:
         
         # Grid header
         print(f"\n{Colors.BOLD}Directory Status:{Colors.END}")
-        print(f"{'Directory':<30} {'Status':<8} {'Size':<12} {'Files':<12} {'Scan Time'}")
-        print('-' * 80)
+        print(f"{'Directory':<25} {'Status':<8} {'Size':<10} {'Files':<10} {'Scan Time':<12} {'Dir MTime'}")
+        print('-' * 85)
         
         # Grid rows
         for result in self.scan_results:
@@ -161,10 +172,11 @@ class FreightOrchestrator:
             size = result.format_size()
             files = f"{result.file_count:,}" if result.has_scan else "---"
             scan_time = result.scan_time[:10] if result.scan_time else "---"  # Just date part
+            dir_mtime = result.directory_mtime if result.directory_mtime else "---"
             
-            print(f"{result.name:<30} {status:<8} {size:<12} {files:<12} {scan_time}")
+            print(f"{result.name:<25} {status:<8} {size:<10} {files:<10} {scan_time:<12} {dir_mtime}")
         
-        print(f"\n{Colors.CYAN}{'=' * 60}{Colors.END}")
+        print(f"\n{Colors.CYAN}{'=' * 85}{Colors.END}")
     
     def init_freight_root(self, root_path: Optional[str] = None) -> None:
         """Initialize a freight root directory with .freight structure"""

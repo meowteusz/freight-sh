@@ -9,6 +9,7 @@ create_scan_json() {
     local file_count="$3"
     local tool_name="$4"
     local tool_version="$5"
+    local directory_mtime="$6"
     
     local scan_time
     scan_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -25,12 +26,14 @@ create_scan_json() {
         --arg status "completed" \
         --arg tool "$tool_name" \
         --arg version "$tool_version" \
+        --arg directory_mtime "$directory_mtime" \
         '{
             scan_id: $scan_id,
             directory: $directory,
             scan_time: $scan_time,
             size_bytes: $size_bytes,
             file_count: $file_count,
+            directory_mtime: $directory_mtime,
             status: $status,
             tool: $tool,
             version: $version
