@@ -95,8 +95,8 @@ class FreightOrchestrator:
         if not self.migration_root.is_dir():
             raise NotADirectoryError(f"Path is not a directory: {self.migration_root}")
         
-        # Find all immediate subdirectories
-        subdirs = [d for d in self.migration_root.iterdir() if d.is_dir()]
+        # Find all immediate subdirectories, excluding .freight
+        subdirs = [d for d in self.migration_root.iterdir() if d.is_dir() and d.name != '.freight']
         
         for subdir in sorted(subdirs):
             scan_file = subdir / '.freight' / 'scan.json'
