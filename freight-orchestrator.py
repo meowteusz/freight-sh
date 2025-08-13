@@ -153,6 +153,18 @@ class FreightOrchestrator:
         # Statistics summary
         print(f"\n{Colors.BOLD}Summary:{Colors.END}")
         print(f"  Scan status: {Colors.GREEN}{stats['scanned_directories']}{Colors.END}/{Colors.WHITE}{stats['total_directories']}{Colors.END} ({Colors.YELLOW}{stats['completion_rate']:.1f}%{Colors.END})")
+
+        # Top three largest directories
+        scanned_results = [r for r in self.scan_results if r.has_scan and r.size_bytes > 0]
+        if scanned_results:
+            scanned_results.sort(key=lambda x: x.size_bytes, reverse=True)
+            top_three = scanned_results[:3]
+            
+            print(f"\n{Colors.BOLD}Largest Directories:{Colors.END}")
+            medals = ["🥇", "🥈", "🥉"]
+            for i, result in enumerate(top_three):
+                medal = medals[i] if i < len(medals) else " "
+                print(f"  {medal} {result.name}: {Colors.WHITE}{result.format_size()}{Colors.END}")
         
         if stats['scanned_directories'] > 0:
             print(f"  Total size: {Colors.WHITE}{self.format_size(stats['total_size_bytes'])}{Colors.END}")
@@ -172,18 +184,6 @@ class FreightOrchestrator:
             dir_mtime = result.directory_mtime if result.directory_mtime else "---"
             
             print(f"{result.name:<25} {status:<8} {size:<10} {files:<10} {scan_time:<12} {dir_mtime}")
-        
-        # Top three largest directories
-        scanned_results = [r for r in self.scan_results if r.has_scan and r.size_bytes > 0]
-        if scanned_results:
-            scanned_results.sort(key=lambda x: x.size_bytes, reverse=True)
-            top_three = scanned_results[:3]
-            
-            print(f"\n{Colors.BOLD}Largest Directories:{Colors.END}")
-            medals = ["🥇", "🥈", "🥉"]
-            for i, result in enumerate(top_three):
-                medal = medals[i] if i < len(medals) else " "
-                print(f"  {medal} {result.name}: {Colors.WHITE}{result.format_size()}{Colors.END}")
         
         print(f"\n{Colors.CYAN}{'=' * 85}{Colors.END}")
     
