@@ -245,7 +245,7 @@ class FreightOrchestrator:
         print(f"Root directory: {Colors.WHITE}{root_dir}{Colors.END}")
         print(f"\nNext steps:")
         print(f"  1. Edit {Colors.CYAN}.freight/config.json{Colors.END} to customize settings")
-        print(f"  2. Run {Colors.YELLOW}freight-orchestrator.py scan{Colors.END} to scan directories")
+        print(f"  2. Run {Colors.YELLOW}freight.py scan{Colors.END} to scan directories")
 
 def main():
     """Main entry point"""
@@ -254,10 +254,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  freight-orchestrator.py init                    # Initialize current directory as freight root
-  freight-orchestrator.py init /path/to/root      # Initialize specific directory as freight root
-  freight-orchestrator.py scan /nfs1/students     # Show scan overview for migration root
-  freight-orchestrator.py overview /nfs1/students # Show scan overview for migration root
+  freight.py init                    # Initialize current directory as freight root
+  freight.py init /path/to/root      # Initialize specific directory as freight root
+  freight.py scan /nfs1/students     # Show scan overview for migration root
+  freight.py overview /nfs1/students # Show scan overview for migration root
         """
     )
     
