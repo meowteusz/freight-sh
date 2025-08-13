@@ -154,6 +154,10 @@ class FreightOrchestrator:
         print(f"\n{Colors.BOLD}Summary:{Colors.END}")
         print(f"  Scan status: {Colors.GREEN}{stats['scanned_directories']}{Colors.END}/{Colors.WHITE}{stats['total_directories']}{Colors.END} ({Colors.YELLOW}{stats['completion_rate']:.1f}%{Colors.END})")
 
+        if stats['scanned_directories'] > 0:
+            print(f"  Total size: {Colors.WHITE}{self.format_size(stats['total_size_bytes'])}{Colors.END}")
+            print(f"  Total files: {Colors.WHITE}{stats['total_files']:,}{Colors.END}")
+
         # Top three largest directories
         scanned_results = [r for r in self.scan_results if r.has_scan and r.size_bytes > 0]
         if scanned_results:
@@ -165,10 +169,6 @@ class FreightOrchestrator:
             for i, result in enumerate(top_three):
                 medal = medals[i] if i < len(medals) else " "
                 print(f"  {medal} {result.name}: {Colors.WHITE}{result.format_size()}{Colors.END}")
-        
-        if stats['scanned_directories'] > 0:
-            print(f"  Total size: {Colors.WHITE}{self.format_size(stats['total_size_bytes'])}{Colors.END}")
-            print(f"  Total files: {Colors.WHITE}{stats['total_files']:,}{Colors.END}")
         
         # Grid header
         print(f"\n{Colors.BOLD}Directory Status:{Colors.END}")
