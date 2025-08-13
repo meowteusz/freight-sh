@@ -85,11 +85,11 @@ create_clean_json() {
 }
 
 # Update root config with completion status
+# Usage: update_root_config "/path" "operation" "key1=value1" "key2=value2" ...
 update_root_config() {
     local migration_root="$1"
-    local operation="$2"  # scan, clean, migrate, etc
+    local operation="$2"
     shift 2
-    local -n updates_ref=$1  # associative array of key=value updates
     
     local root_freight_dir="$migration_root/.freight"
     mkdir -p "$root_freight_dir"
@@ -101,18 +101,22 @@ update_root_config() {
     # Build jq update command
     local jq_cmd=". | .${operation}_completed = true | .last_${operation}_time = \"$completion_time\""
     
-    # Add custom updates
-    for key in "${!updates_ref}"; do
-        local value="${updates_ref[$key]}"
-        if [[ "$value" =~ ^[0-9]+$ ]]; then
-            # Numeric value
-            jq_cmd="$jq_cmd | .$key = $value"
-        elif [[ "$value" == "true" || "$value" == "false" ]]; then
-            # Boolean value
-            jq_cmd="$jq_cmd | .$key = $value"
-        else
-            # String value
-            jq_cmd="$jq_cmd | .$key = \"$value\""
+    # Add custom updates from remaining arguments
+    for update in "$@"; do
+        if [[ "$update" == *"="* ]]; then
+            local key="${update%%=*}"
+            local value="${update#*=}"
+            
+            if [[ "$value" =~ ^[0-9]+$ ]]; then
+                # Numeric value
+                jq_cmd="$jq_cmd | .$key = $value"
+            elif [[ "$value" == "true" || "$value" == "false" ]]; then
+                # Boolean value
+                jq_cmd="$jq_cmd | .$key = $value"
+            else
+                # String value
+                jq_cmd="$jq_cmd | .$key = \"$value\""
+            fi
         fi
     done
     
