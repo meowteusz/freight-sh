@@ -348,7 +348,7 @@ class FreightOrchestrator:
         
         try:
             # Run the clean script
-            result = subprocess.run(cmd, check=True, text=True, capture_output=False)
+            result = subprocess.run(cmd, check=True, capture_output=False)
             print(f"\n{Colors.GREEN}Clean completed successfully!{Colors.END}")
         except subprocess.CalledProcessError as e:
             print(f"\n{Colors.RED}Clean failed with exit code {e.returncode}{Colors.END}")
@@ -376,7 +376,7 @@ class FreightOrchestrator:
         
         try:
             # Run the scan script
-            result = subprocess.run(cmd, check=True, text=True, capture_output=False)
+            result = subprocess.run(cmd, check=True, capture_output=False)
             print(f"\n{Colors.GREEN}Scan completed successfully!{Colors.END}")
         except subprocess.CalledProcessError as e:
             print(f"\n{Colors.RED}Scan failed with exit code {e.returncode}{Colors.END}")
