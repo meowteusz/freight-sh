@@ -15,12 +15,14 @@ source "$SCRIPT_DIR/freight-lib/json-utils.sh"
 
 usage() {
     cat << EOF
-Usage: $SCRIPT_NAME <migration_root>
+Usage: $SCRIPT_NAME [migration_root]
 
 Scans all immediate subdirectories and creates .freight/scan.json files.
+If no migration_root is provided, uses the root from global config.
 
 Examples:
-    $SCRIPT_NAME /nfs1/students
+    $SCRIPT_NAME                # Uses migration root from global config
+    $SCRIPT_NAME /nfs1/students # Uses explicit migration root
 EOF
 }
 
@@ -34,9 +36,17 @@ needs_scan() {
     # Always scan if no previous scan exists
     [ ! -f "$scan_file" ] && return 0
     
-    # Get directory mtime (in seconds since epoch)
+    # Get directory mtime (cross-platform)
     local dir_mtime
-    dir_mtime=$(stat -c %Y "$target_dir" 2>/dev/null || stat -f %m "$target_dir" 2>/dev/null || echo "0")
+    if stat -c %Y "$target_dir" >/dev/null 2>&1; then
+        # Linux stat
+        dir_mtime=$(stat -c %Y "$target_dir")
+    elif stat -f %m "$target_dir" >/dev/null 2>&1; then
+        # macOS stat  
+        dir_mtime=$(stat -f %m "$target_dir")
+    else
+        dir_mtime="0"
+    fi
     
     # Get last scan's directory mtime from JSON
     local last_dir_mtime
@@ -59,13 +69,32 @@ scan_directory() {
     
     mkdir -p "$freight_dir"
     
-    # Get directory mtime
-    local dir_mtime
-    dir_mtime=$(stat -c %Y "$target_dir" 2>/dev/null || stat -f %m "$target_dir" 2>/dev/null || echo "0")
+    # Get directory mtime (cross-platform)
+    local dir_mtime  
+    if stat -c %Y "$target_dir" >/dev/null 2>&1; then
+        # Linux stat
+        dir_mtime=$(stat -c %Y "$target_dir")
+    elif stat -f %m "$target_dir" >/dev/null 2>&1; then
+        # macOS stat
+        dir_mtime=$(stat -f %m "$target_dir")
+    else
+        dir_mtime="0"
+    fi
     
-    # Get directory size and file count
+    # Get directory size and file count (cross-platform)
     local size_bytes
-    size_bytes=$(du -sb "$target_dir" | cut -f1)
+    if command -v gdu >/dev/null 2>&1; then
+        # GNU du available
+        size_bytes=$(gdu -sb "$target_dir" | cut -f1)
+    elif du -sb "$target_dir" >/dev/null 2>&1; then
+        # Linux du with -b flag
+        size_bytes=$(du -sb "$target_dir" | cut -f1)
+    else
+        # macOS du, use -k and convert to bytes
+        local size_kb
+        size_kb=$(du -sk "$target_dir" | cut -f1)
+        size_bytes=$((size_kb * 1024))
+    fi
     
     local file_count
     file_count=$(find "$target_dir" -type f -not -path "$freight_dir/*" | wc -l)
@@ -78,10 +107,20 @@ scan_directory() {
 }
 
 main() {
-    # Validate arguments
-    [ $# -eq 1 ] || { usage; exit 1; }
+    local migration_root=""
     
-    local migration_root="$1"
+    # Check if migration root was provided
+    if [ $# -eq 1 ]; then
+        migration_root="$1"
+    elif [ $# -eq 0 ]; then
+        # Try to get from global config
+        if ! migration_root=$(get_migration_root); then
+            exit 1
+        fi
+    else
+        usage
+        exit 1
+    fi
     
     # Validate directory
     [ -d "$migration_root" ] || { log_error "Directory not found: $migration_root"; exit 1; }
@@ -139,12 +178,8 @@ main() {
     
     finish_progress
     
-    # Update root config
-    declare -A updates=(
-        ["total_size_bytes"]="$total_bytes"
-        ["total_directories"]="${#subdirs[@]}"
-    )
-    update_root_config "$migration_root" "scan" updates
+    # Update global config
+    update_global_config "scan" "total_size_bytes=$total_bytes" "total_directories=${#subdirs[@]}"
     
     log_success "Scan completed!"
     log_info "Total: $(bytes_to_human "$total_bytes") across ${#subdirs[@]} directories"

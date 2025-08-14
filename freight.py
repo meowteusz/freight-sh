@@ -83,7 +83,17 @@ class ScanResult:
 class FreightOrchestrator:
     """Main orchestrator class for managing Freight operations"""
     
-    def __init__(self, migration_root: str):
+    def __init__(self, migration_root: Optional[str] = None):
+        self.script_dir = Path(__file__).parent.resolve()
+        self.global_config_path = self.script_dir / 'config.json'
+        
+        # If no migration root provided, try to get from global config
+        if migration_root is None:
+            migration_root = self.get_migration_root_from_config()
+            
+        if migration_root is None:
+            raise ValueError("No migration root specified and no global config found")
+            
         self.migration_root = Path(migration_root).resolve()
         self.scan_results: List[ScanResult] = []
     
@@ -141,6 +151,61 @@ class FreightOrchestrator:
             size /= 1024.0
         return f"{size:.1f}PB"
     
+    def get_migration_root_from_config(self) -> Optional[str]:
+        """Get migration root from global config file"""
+        if not self.global_config_path.exists():
+            return None
+        
+        try:
+            with open(self.global_config_path, 'r') as f:
+                config = json.load(f)
+            return config.get('root_directory')
+        except (json.JSONDecodeError, IOError):
+            return None
+    
+    def ensure_global_config(self, migration_root: str) -> bool:
+        """Ensure global config exists and is properly set up. Returns True if config was created."""
+        if self.global_config_path.exists():
+            return False
+        
+        config_skeleton = {
+            "freight_version": "1.0.0",
+            "root_directory": migration_root,
+            "created_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "scan_completed": False,
+            "clean_completed": False,
+            "migrate_completed": False,
+            "last_scan_time": None,
+            "last_clean_time": None,
+            "last_migrate_time": None,
+            "total_directories": 0,
+            "total_size_bytes": 0,
+            "settings": {
+                "dry_run": True,
+                "verbose": False,
+                "parallel_jobs": 4,
+                "exclude_patterns": [
+                    ".git",
+                    ".svn", 
+                    "node_modules",
+                    "__pycache__"
+                ]
+            },
+            "cleaning": {
+                "target_directories": []
+            },
+            "metadata": {
+                "description": "Freight NFS migration root",
+                "contact": "",
+                "notes": ""
+            }
+        }
+        
+        with open(self.global_config_path, 'w') as f:
+            json.dump(config_skeleton, f, indent=2)
+        
+        return True
+    
     def display_overview(self) -> None:
         """Display the grid-like overview of scan status"""
         stats = self.get_statistics()
@@ -188,63 +253,44 @@ class FreightOrchestrator:
         print(f"\n{Colors.CYAN}{'=' * 85}{Colors.END}")
     
     def init_freight_root(self, root_path: Optional[str] = None) -> None:
-        """Initialize a freight root directory with .freight structure"""
+        """Initialize a freight root directory with global config"""
         if root_path is None:
             root_path = os.getcwd()
         
         root_dir = Path(root_path).resolve()
-        freight_dir = root_dir / '.freight'
         
-        # Create .freight directory
-        freight_dir.mkdir(exist_ok=True)
-        print(f"{Colors.GREEN}✓{Colors.END} Created .freight directory: {freight_dir}")
-        
-        # Create .freight-root marker file
+        # Create .freight-root marker file only
         freight_root_marker = root_dir / '.freight-root'
         freight_root_marker.touch()
         print(f"{Colors.GREEN}✓{Colors.END} Created .freight-root marker: {freight_root_marker}")
         
-        # Create config.json skeleton
-        config_file = freight_dir / 'config.json'
+        # Create/update global config
+        config_created = self.ensure_global_config(str(root_dir))
         
-        config_skeleton = {
-            "freight_version": "1.0.0",
-            "root_directory": str(root_dir),
-            "created_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "scan_completed": False,
-            "clean_completed": False,
-            "migrate_completed": False,
-            "last_scan_time": None,
-            "last_clean_time": None,
-            "last_migrate_time": None,
-            "total_directories": 0,
-            "total_size_bytes": 0,
-            "settings": {
-                "dry_run": True,
-                "verbose": False,
-                "parallel_jobs": 4,
-                "exclude_patterns": [
-                    ".git",
-                    ".svn",
-                    "node_modules",
-                    "__pycache__"
-                ]
-            },
-            "metadata": {
-                "description": "Freight NFS migration root",
-                "contact": "",
-                "notes": ""
-            }
-        }
+        if config_created:
+            print(f"{Colors.GREEN}✓{Colors.END} Created global config: {self.global_config_path}")
+            print(f"\n{Colors.BOLD}{Colors.YELLOW}Global configuration created!{Colors.END}")
+            print(f"Please edit {Colors.CYAN}{self.global_config_path}{Colors.END} to customize your migration settings.")
+            print(f"Pay special attention to:")
+            print(f"  - cleaning.target_directories (directories to clean from subdirs)")
+            print(f"  - settings.exclude_patterns (patterns to exclude from scans)")
+        else:
+            print(f"{Colors.YELLOW}!{Colors.END} Global config already exists: {self.global_config_path}")
+            # Update the root directory in existing config
+            try:
+                with open(self.global_config_path, 'r') as f:
+                    config = json.load(f)
+                config['root_directory'] = str(root_dir)
+                with open(self.global_config_path, 'w') as f:
+                    json.dump(config, f, indent=2)
+                print(f"{Colors.GREEN}✓{Colors.END} Updated root directory in global config")
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"{Colors.RED}✗{Colors.END} Failed to update global config: {e}")
         
-        with open(config_file, 'w') as f:
-            json.dump(config_skeleton, f, indent=2)
-        
-        print(f"{Colors.GREEN}✓{Colors.END} Created config.json: {config_file}")
         print(f"\n{Colors.BOLD}{Colors.CYAN}Freight root initialized successfully!{Colors.END}")
         print(f"Root directory: {Colors.WHITE}{root_dir}{Colors.END}")
         print(f"\nNext steps:")
-        print(f"  1. Edit {Colors.CYAN}.freight/config.json{Colors.END} to customize settings")
+        print(f"  1. Edit {Colors.CYAN}{self.global_config_path}{Colors.END} to customize settings")
         print(f"  2. Run {Colors.YELLOW}freight.py scan{Colors.END} to scan directories")
 
 def main():
@@ -270,14 +316,14 @@ Examples:
     init_parser.add_argument('directory', nargs='?', default=None,
                            help='Directory to initialize (default: current directory)')
     
-    # Scan/Overview command
+    # Scan/Overview command  
     scan_parser = subparsers.add_parser('scan', help='Show scan overview of migration root')
-    scan_parser.add_argument('migration_root', nargs='?', default='.',
-                           help='Migration root directory to analyze (default: current directory)')
+    scan_parser.add_argument('migration_root', nargs='?', default=None,
+                           help='Migration root directory to analyze (default: from global config)')
     
     overview_parser = subparsers.add_parser('overview', help='Show scan overview of migration root')
-    overview_parser.add_argument('migration_root', nargs='?', default='.',
-                               help='Migration root directory to analyze (default: current directory)')
+    overview_parser.add_argument('migration_root', nargs='?', default=None,
+                               help='Migration root directory to analyze (default: from global config)')
     
     # Parse arguments
     args = parser.parse_args()
@@ -294,7 +340,21 @@ Examples:
             
         elif args.command in ['scan', 'overview']:
             # Show scan overview
-            orchestrator = FreightOrchestrator(args.migration_root)
+            try:
+                orchestrator = FreightOrchestrator(args.migration_root)
+            except ValueError as e:
+                if "No migration root specified" in str(e):
+                    print(f"{Colors.RED}Error:{Colors.END} No migration root found in global config.")
+                    print(f"Please run {Colors.YELLOW}freight.py init{Colors.END} first or specify a migration root explicitly.")
+                    sys.exit(1)
+                raise
+            
+            # Ensure global config exists and alert if created
+            config_created = orchestrator.ensure_global_config(str(orchestrator.migration_root))
+            if config_created:
+                print(f"{Colors.YELLOW}Global configuration created at {orchestrator.global_config_path}{Colors.END}")
+                print(f"Please edit the config file to customize settings before running scan operations.\n")
+            
             orchestrator.scan_directories()
             orchestrator.display_overview()
             

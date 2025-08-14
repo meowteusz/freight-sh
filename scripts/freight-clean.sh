@@ -17,40 +17,42 @@ source "$SCRIPT_DIR/freight-lib/json-utils.sh"
 
 usage() {
     cat << EOF
-Usage: $SCRIPT_NAME <migration_root> [--dry-run]
+Usage: $SCRIPT_NAME [migration_root] [--dry-run]
 
 Deletes configured directories from immediate subdirectory roots.
+If no migration_root is provided, uses the root from global config.
 
 Options:
     --dry-run    Show what would be cleaned without deleting
 
 Examples:
-    $SCRIPT_NAME /nfs1/students --dry-run
-    $SCRIPT_NAME /nfs1/students
+    $SCRIPT_NAME --dry-run        # Uses global config, dry run
+    $SCRIPT_NAME                  # Uses global config, real run
+    $SCRIPT_NAME /nfs1/students   # Uses explicit migration root
 EOF
 }
 
-# Load directory names from config
+# Load directory names from global config
 get_clean_directories() {
-    local migration_root="$1"
-    local config_file="$migration_root/.freight/config.json"
+    local config_file
+    config_file=$(get_global_config)
     
     if [ ! -f "$config_file" ]; then
-        log_error "Configuration file not found: $config_file"
-        log_info "Please create a config.json file with cleaning.target_directories configured"
+        log_error "Global configuration file not found: $config_file"
+        log_info "Please run 'freight.py init' first to create configuration"
         return 1
     fi
     
     local dir_names
     if ! dir_names=$(jq -r '.cleaning.target_directories[]?' "$config_file" 2>/dev/null); then
-        log_error "Failed to read directory names from config file"
-        log_info "Please ensure config.json has a valid cleaning.target_directories array"
+        log_error "Failed to read directory names from global config file"
+        log_info "Please ensure global config.json has a valid cleaning.target_directories array"
         return 1
     fi
     
     if [ -z "$dir_names" ]; then
-        log_error "No directory names found in configuration"
-        log_info "Please configure cleaning.target_directories in config.json"
+        log_error "No directory names found in global configuration"
+        log_info "Please configure cleaning.target_directories in global config.json"
         return 1
     fi
     
@@ -78,7 +80,18 @@ clean_directory() {
         [ -d "$target_path" ] || continue
         
         local item_size=0
-        item_size=$(du -sb "$target_path" 2>/dev/null | cut -f1 || echo "0")
+        if command -v gdu >/dev/null 2>&1; then
+            # GNU du available
+            item_size=$(gdu -sb "$target_path" 2>/dev/null | cut -f1 || echo "0")
+        elif du -sb "$target_path" >/dev/null 2>&1; then
+            # Linux du with -b flag
+            item_size=$(du -sb "$target_path" 2>/dev/null | cut -f1 || echo "0")
+        else
+            # macOS du, use -k and convert to bytes
+            local size_kb
+            size_kb=$(du -sk "$target_path" 2>/dev/null | cut -f1 || echo "0")
+            item_size=$((size_kb * 1024))
+        fi
         
         if [ "$dry_run" = "true" ]; then
             cleaned_items+=("$dir_name ($(bytes_to_human "$item_size"))")
@@ -117,8 +130,12 @@ main() {
         esac
     done
     
-    # Validate arguments
-    [ -n "$migration_root" ] || { usage; exit 1; }
+    # If no migration root provided, get from global config
+    if [ -z "$migration_root" ]; then
+        if ! migration_root=$(get_migration_root); then
+            exit 1
+        fi
+    fi
     [ -d "$migration_root" ] || { log_error "Directory not found: $migration_root"; exit 1; }
     [ -w "$migration_root" ] || { log_error "Directory not writable: $migration_root"; exit 1; }
     
@@ -132,7 +149,7 @@ main() {
     # Load directory names and get subdirectories
     local dir_names=()
     local dir_output
-    if ! dir_output=$(get_clean_directories "$migration_root"); then
+    if ! dir_output=$(get_clean_directories); then
         exit 1
     fi
     
@@ -175,12 +192,8 @@ main() {
     
     finish_progress
     
-    # Update root config
-    declare -A updates=(
-        ["total_cleaned_bytes"]="$total_cleaned"
-        ["clean_was_dry_run"]="$dry_run"
-    )
-    update_root_config "$migration_root" "clean" updates
+    # Update global config
+    update_global_config "clean" "total_cleaned_bytes=$total_cleaned" "clean_was_dry_run=$dry_run"
     
     local action="cleaned"
     [ "$dry_run" = "true" ] && action="would clean"

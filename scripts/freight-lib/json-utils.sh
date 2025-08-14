@@ -84,17 +84,21 @@ create_clean_json() {
         }'
 }
 
-# Update root config with completion status
-# Usage: update_root_config "/path" "operation" "key1=value1" "key2=value2" ...
-update_root_config() {
-    local migration_root="$1"
-    local operation="$2"
-    shift 2
+# Get global config file path
+get_global_config() {
+    local script_dir
+    script_dir="$(dirname "$(dirname "$(realpath "$0")")")"  # Go up two levels to freight.py dir
+    echo "$script_dir/config.json"
+}
+
+# Update global config with completion status  
+# Usage: update_global_config "operation" "key1=value1" "key2=value2" ...
+update_global_config() {
+    local operation="$1"
+    shift 1
     
-    local root_freight_dir="$migration_root/.freight"
-    mkdir -p "$root_freight_dir"
-    
-    local config_file="$root_freight_dir/config.json"
+    local config_file
+    config_file=$(get_global_config)
     local completion_time
     completion_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     
@@ -124,9 +128,31 @@ update_root_config() {
         # Update existing config
         jq "$jq_cmd" "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
     else
-        # Create new config
+        # Config should exist by now, but create basic one if needed
         echo '{}' | jq "$jq_cmd" > "$config_file"
     fi
+}
+
+# Get migration root from global config
+get_migration_root() {
+    local config_file
+    config_file=$(get_global_config)
+    
+    if [ ! -f "$config_file" ]; then
+        echo "Error: Global config not found: $config_file" >&2
+        echo "Please run 'freight.py init' first" >&2
+        return 1
+    fi
+    
+    local migration_root
+    migration_root=$(jq -r '.root_directory // empty' "$config_file" 2>/dev/null)
+    
+    if [ -z "$migration_root" ]; then
+        echo "Error: No root_directory found in global config" >&2
+        return 1
+    fi
+    
+    echo "$migration_root"
 }
 
 # Convert bytes to human readable format
