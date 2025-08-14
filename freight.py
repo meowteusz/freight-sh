@@ -279,6 +279,17 @@ class FreightOrchestrator:
         
         root_dir = Path(root_path).resolve()
         
+        # Check if config.json already exists in the same directory as freight.py
+        if self.global_config_path.exists():
+            print(f"{Colors.RED}✗{Colors.END} Freight has already been initialized!")
+            print(f"Config file exists: {Colors.CYAN}{self.global_config_path}{Colors.END}")
+            print(f"\nTo reconfigure your migration:")
+            print(f"  • Edit the existing config: {Colors.YELLOW}nano {self.global_config_path}{Colors.END}")
+            print(f"  • Or backup and reinitialize:")
+            print(f"    {Colors.YELLOW}mv {self.global_config_path} {self.global_config_path}.backup{Colors.END}")
+            print(f"    {Colors.YELLOW}freight.py init{Colors.END}")
+            sys.exit(1)
+        
         # Create .freight-root marker file only
         freight_root_marker = root_dir / '.freight-root'
         freight_root_marker.touch()
