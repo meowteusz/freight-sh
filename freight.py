@@ -10,6 +10,7 @@ displaying progress in a grid-like format with status indicators and statistics.
 import argparse
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -323,6 +324,66 @@ class FreightOrchestrator:
         print(f"\nNext steps:")
         print(f"  1. Edit {Colors.CYAN}{self.global_config_path}{Colors.END} to customize settings")
         print(f"  2. Run {Colors.YELLOW}freight.py scan{Colors.END} to scan directories")
+    
+    def run_clean(self, dry_run: bool = False) -> None:
+        """Run the freight-clean.sh script"""
+        if not self.migration_root.exists():
+            raise FileNotFoundError(f"Migration root not found: {self.migration_root}")
+        
+        # Path to the freight-clean.sh script
+        clean_script = self.script_dir / 'scripts' / 'freight-clean.sh'
+        
+        if not clean_script.exists():
+            raise FileNotFoundError(f"Clean script not found: {clean_script}")
+        
+        # Build command arguments
+        cmd = [str(clean_script), str(self.migration_root)]
+        if dry_run:
+            cmd.append('--dry-run')
+        
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Running Freight Clean{Colors.END}")
+        print(f"Root: {Colors.WHITE}{self.migration_root}{Colors.END}")
+        if dry_run:
+            print(f"Mode: {Colors.YELLOW}DRY RUN{Colors.END}")
+        
+        try:
+            # Run the clean script
+            result = subprocess.run(cmd, check=True, text=True, capture_output=False)
+            print(f"\n{Colors.GREEN}Clean completed successfully!{Colors.END}")
+        except subprocess.CalledProcessError as e:
+            print(f"\n{Colors.RED}Clean failed with exit code {e.returncode}{Colors.END}")
+            raise
+        except FileNotFoundError:
+            print(f"{Colors.RED}Error: freight-clean.sh script not found{Colors.END}")
+            raise
+    
+    def run_scan(self) -> None:
+        """Run the freight-scan.sh script"""
+        if not self.migration_root.exists():
+            raise FileNotFoundError(f"Migration root not found: {self.migration_root}")
+        
+        # Path to the freight-scan.sh script
+        scan_script = self.script_dir / 'scripts' / 'freight-scan.sh'
+        
+        if not scan_script.exists():
+            raise FileNotFoundError(f"Scan script not found: {scan_script}")
+        
+        # Build command arguments
+        cmd = [str(scan_script), str(self.migration_root)]
+        
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Running Freight Scan{Colors.END}")
+        print(f"Root: {Colors.WHITE}{self.migration_root}{Colors.END}")
+        
+        try:
+            # Run the scan script
+            result = subprocess.run(cmd, check=True, text=True, capture_output=False)
+            print(f"\n{Colors.GREEN}Scan completed successfully!{Colors.END}")
+        except subprocess.CalledProcessError as e:
+            print(f"\n{Colors.RED}Scan failed with exit code {e.returncode}{Colors.END}")
+            raise
+        except FileNotFoundError:
+            print(f"{Colors.RED}Error: freight-scan.sh script not found{Colors.END}")
+            raise
 
 def main():
     """Main entry point"""
@@ -333,10 +394,13 @@ def main():
 Examples:
   freight.py init                    # Initialize current directory as freight root
   freight.py init /path/to/root      # Initialize specific directory as freight root
-  freight.py scan                    # Show scan overview for current directory
-  freight.py scan /nfs1/students     # Show scan overview for migration root
+  freight.py scan                    # Run freight-scan.sh using global config
+  freight.py scan /nfs1/students     # Run freight-scan.sh on specific migration root
   freight.py overview                # Show scan overview for current directory
   freight.py overview /nfs1/students # Show scan overview for migration root
+  freight.py clean --dry-run         # Show what would be cleaned (dry run)
+  freight.py clean                   # Clean directories using global config
+  freight.py clean /nfs1/students    # Clean specific migration root
         """
     )
     
@@ -347,14 +411,22 @@ Examples:
     init_parser.add_argument('directory', nargs='?', default=None,
                            help='Directory to initialize (default: current directory)')
     
-    # Scan/Overview command  
-    scan_parser = subparsers.add_parser('scan', help='Show scan overview of migration root')
+    # Scan command (runs freight-scan.sh)
+    scan_parser = subparsers.add_parser('scan', help='Run freight-scan.sh to scan directories')
     scan_parser.add_argument('migration_root', nargs='?', default=None,
-                           help='Migration root directory to analyze (default: from global config)')
+                           help='Migration root directory to scan (default: from global config)')
     
+    # Overview command (shows results)
     overview_parser = subparsers.add_parser('overview', help='Show scan overview of migration root')
     overview_parser.add_argument('migration_root', nargs='?', default=None,
                                help='Migration root directory to analyze (default: from global config)')
+    
+    # Clean command
+    clean_parser = subparsers.add_parser('clean', help='Clean directories using freight-clean.sh')
+    clean_parser.add_argument('migration_root', nargs='?', default=None,
+                            help='Migration root directory to clean (default: from global config)')
+    clean_parser.add_argument('--dry-run', action='store_true',
+                            help='Show what would be cleaned without deleting files')
     
     # Parse arguments
     args = parser.parse_args()
@@ -369,7 +441,26 @@ Examples:
             orchestrator = FreightOrchestrator(args.directory or os.getcwd())
             orchestrator.init_freight_root(args.directory)
             
-        elif args.command in ['scan', 'overview']:
+        elif args.command == 'scan':
+            # Run scan operation
+            try:
+                orchestrator = FreightOrchestrator(args.migration_root)
+            except ValueError as e:
+                if "No migration root specified" in str(e):
+                    print(f"{Colors.RED}Error:{Colors.END} No migration root found in global config.")
+                    print(f"Please run {Colors.YELLOW}freight.py init{Colors.END} first or specify a migration root explicitly.")
+                    sys.exit(1)
+                raise
+            
+            # Ensure global config exists
+            config_created = orchestrator.ensure_global_config(str(orchestrator.migration_root))
+            if config_created:
+                print(f"{Colors.YELLOW}Global configuration created at {orchestrator.global_config_path}{Colors.END}")
+                print(f"Please edit the config file to customize scanning settings before running scan operations.\n")
+            
+            orchestrator.run_scan()
+            
+        elif args.command == 'overview':
             # Show scan overview
             try:
                 orchestrator = FreightOrchestrator(args.migration_root)
@@ -384,10 +475,29 @@ Examples:
             config_created = orchestrator.ensure_global_config(str(orchestrator.migration_root))
             if config_created:
                 print(f"{Colors.YELLOW}Global configuration created at {orchestrator.global_config_path}{Colors.END}")
-                print(f"Please edit the config file to customize settings before running scan operations.\n")
+                print(f"Please edit the config file to customize settings before running overview operations.\n")
             
             orchestrator.scan_directories()
             orchestrator.display_overview()
+            
+        elif args.command == 'clean':
+            # Run clean operation
+            try:
+                orchestrator = FreightOrchestrator(args.migration_root)
+            except ValueError as e:
+                if "No migration root specified" in str(e):
+                    print(f"{Colors.RED}Error:{Colors.END} No migration root found in global config.")
+                    print(f"Please run {Colors.YELLOW}freight.py init{Colors.END} first or specify a migration root explicitly.")
+                    sys.exit(1)
+                raise
+            
+            # Ensure global config exists
+            config_created = orchestrator.ensure_global_config(str(orchestrator.migration_root))
+            if config_created:
+                print(f"{Colors.YELLOW}Global configuration created at {orchestrator.global_config_path}{Colors.END}")
+                print(f"Please edit the config file to customize cleaning settings before running clean operations.\n")
+            
+            orchestrator.run_clean(dry_run=args.dry_run)
             
     except (FileNotFoundError, NotADirectoryError) as e:
         print(f"Error: {e}", file=sys.stderr)
