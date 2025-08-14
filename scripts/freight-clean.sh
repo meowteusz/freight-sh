@@ -106,7 +106,11 @@ clean_directory() {
     
     # Create JSON log
     local cleaned_items_json patterns_json
-    cleaned_items_json=$(printf '%s\n' "${cleaned_items[@]}" | jq -R . | jq -s . 2>/dev/null || echo '[]')
+    if [ ${#cleaned_items[@]} -eq 0 ]; then
+        cleaned_items_json='[]'
+    else
+        cleaned_items_json=$(printf '%s\n' "${cleaned_items[@]}" | jq -R . | jq -s . 2>/dev/null || echo '[]')
+    fi
     patterns_json=$(printf '%s\n' "${dir_names[@]}" | jq -R . | jq -s .)
     
     create_clean_json "$target_dir" "$total_cleaned" "${#cleaned_items[@]}" \
