@@ -432,8 +432,9 @@ Examples:
     args = parser.parse_args()
     
     if not args.command:
-        parser.print_help()
-        sys.exit(1)
+        # Default to overview command when no arguments provided
+        args.command = 'overview'
+        args.migration_root = None
     
     try:
         if args.command == 'init':
