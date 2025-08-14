@@ -256,7 +256,9 @@ def main():
 Examples:
   freight.py init                    # Initialize current directory as freight root
   freight.py init /path/to/root      # Initialize specific directory as freight root
+  freight.py scan                    # Show scan overview for current directory
   freight.py scan /nfs1/students     # Show scan overview for migration root
+  freight.py overview                # Show scan overview for current directory
   freight.py overview /nfs1/students # Show scan overview for migration root
         """
     )
@@ -270,10 +272,12 @@ Examples:
     
     # Scan/Overview command
     scan_parser = subparsers.add_parser('scan', help='Show scan overview of migration root')
-    scan_parser.add_argument('migration_root', help='Migration root directory to analyze')
+    scan_parser.add_argument('migration_root', nargs='?', default='.',
+                           help='Migration root directory to analyze (default: current directory)')
     
     overview_parser = subparsers.add_parser('overview', help='Show scan overview of migration root')
-    overview_parser.add_argument('migration_root', help='Migration root directory to analyze')
+    overview_parser.add_argument('migration_root', nargs='?', default='.',
+                               help='Migration root directory to analyze (default: current directory)')
     
     # Parse arguments
     args = parser.parse_args()
