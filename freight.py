@@ -206,9 +206,29 @@ class FreightOrchestrator:
         
         return True
     
+    def update_config_stats(self, stats: Dict[str, Any]) -> None:
+        """Update config.json with calculated statistics"""
+        if not self.global_config_path.exists():
+            return
+        
+        try:
+            with open(self.global_config_path, 'r') as f:
+                config = json.load(f)
+            
+            config['total_directories'] = stats['total_directories']
+            config['total_size_bytes'] = stats['total_size_bytes']
+            
+            with open(self.global_config_path, 'w') as f:
+                json.dump(config, f, indent=2)
+        except (json.JSONDecodeError, IOError):
+            pass
+    
     def display_overview(self) -> None:
         """Display the grid-like overview of scan status"""
         stats = self.get_statistics()
+        
+        # Update config.json with calculated stats
+        self.update_config_stats(stats)
         
         # Header
         print(f"\n{Colors.BOLD}{Colors.CYAN}Freight Scanner Overview{Colors.END}")
