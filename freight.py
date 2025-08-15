@@ -16,6 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
+# Freight version - used for config version comparison
+FREIGHT_VERSION = "1.3"
+
 class Colors:
     """ANSI color codes for terminal output"""
     GREEN = '\033[92m'
@@ -97,6 +100,9 @@ class FreightOrchestrator:
             
         self.migration_root = Path(migration_root).resolve()
         self.scan_results: List[ScanResult] = []
+        
+        # Check version compatibility
+        self.check_config_version()
     
     def scan_directories(self) -> None:
         """Scan all subdirectories for .freight/scan.json files"""
@@ -152,6 +158,25 @@ class FreightOrchestrator:
             size /= 1024.0
         return f"{size:.1f}PB"
     
+    def check_config_version(self) -> None:
+        """Check config version compatibility and warn if mismatch"""
+        if not self.global_config_path.exists():
+            return
+        
+        try:
+            with open(self.global_config_path, 'r') as f:
+                config = json.load(f)
+            
+            config_version = config.get('config_version', config.get('freight_version', 'unknown'))
+            
+            if config_version != FREIGHT_VERSION:
+                print(f"{Colors.YELLOW}⚠️  Version mismatch detected:{Colors.END}")
+                print(f"   Script version: {Colors.GREEN}{FREIGHT_VERSION}{Colors.END}")
+                print(f"   Config version: {Colors.RED}{config_version}{Colors.END}")
+                print(f"   Please update your config or use a compatible script version.\n")
+        except (json.JSONDecodeError, IOError):
+            print(f"{Colors.YELLOW}⚠️  Could not read config version{Colors.END}\n")
+    
     def get_migration_root_from_config(self) -> Optional[str]:
         """Get migration root from global config file"""
         if not self.global_config_path.exists():
@@ -160,7 +185,7 @@ class FreightOrchestrator:
         try:
             with open(self.global_config_path, 'r') as f:
                 config = json.load(f)
-            return config.get('root_directory')
+            return config.get('migration_root')
         except (json.JSONDecodeError, IOError):
             return None
     
@@ -170,40 +195,28 @@ class FreightOrchestrator:
             return False
         
         config_skeleton = {
-            "freight_version": "1.0.0",
-            "root_directory": migration_root,
+            "config_version": FREIGHT_VERSION,
+            "migration_root": migration_root,
             "created_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "scan_completed": False,
-            "clean_completed": False,
-            "migrate_completed": False,
-            "last_scan_time": None,
-            "last_clean_time": None,
-            "last_migrate_time": None,
-            "total_directories": 0,
-            "total_size_bytes": 0,
-            "settings": {
-                "dry_run": True,
-                "verbose": False,
-                "parallel_jobs": 4,
+            "global": {
+                "parallel_jobs": 4
+            },
+            "scan": {
+                "last_scan_time": None,
+                "total_directories": 0,
+                "total_size_bytes": 0
+            },
+            "clean": {
+                "last_clean_time": None,
+                "target_directories": [],
                 "shared_directory_threshold": 2,
                 "shared_directory_ignore": [
                     ".freight",
                     ".ssh"
-                ],
-                "exclude_patterns": [
-                    ".git",
-                    ".svn", 
-                    "node_modules",
-                    "__pycache__"
                 ]
             },
-            "cleaning": {
-                "target_directories": []
-            },
-            "metadata": {
-                "description": "Freight NFS migration root",
-                "contact": "",
-                "notes": ""
+            "migrate": {
+                "last_migrate_time": None
             }
         }
         
@@ -221,8 +234,8 @@ class FreightOrchestrator:
             with open(self.global_config_path, 'r') as f:
                 config = json.load(f)
             
-            config['total_directories'] = stats['total_directories']
-            config['total_size_bytes'] = stats['total_size_bytes']
+            config['scan']['total_directories'] = stats['total_directories']
+            config['scan']['total_size_bytes'] = stats['total_size_bytes']
             
             with open(self.global_config_path, 'w') as f:
                 json.dump(config, f, indent=2)
@@ -309,15 +322,15 @@ class FreightOrchestrator:
             print(f"\n{Colors.BOLD}{Colors.YELLOW}Global configuration created!{Colors.END}")
             print(f"Please edit {Colors.CYAN}{self.global_config_path}{Colors.END} to customize your migration settings.")
             print(f"Pay special attention to:")
-            print(f"  - cleaning.target_directories (directories to clean from subdirs)")
-            print(f"  - settings.exclude_patterns (patterns to exclude from scans)")
+            print(f"  - clean.target_directories (directories to clean from subdirs)")
+            print(f"  - clean.shared_directory_threshold (minimum occurrences for shared dirs)")
         else:
             print(f"{Colors.YELLOW}!{Colors.END} Global config already exists: {self.global_config_path}")
             # Update the root directory in existing config
             try:
                 with open(self.global_config_path, 'r') as f:
                     config = json.load(f)
-                config['root_directory'] = str(root_dir)
+                config['migration_root'] = str(root_dir)
                 with open(self.global_config_path, 'w') as f:
                     json.dump(config, f, indent=2)
                 print(f"{Colors.GREEN}✓{Colors.END} Updated root directory in global config")
@@ -425,7 +438,7 @@ class FreightOrchestrator:
         try:
             with open(self.global_config_path, 'r') as f:
                 config = json.load(f)
-            return config.get('settings', {}).get('shared_directory_threshold', 2)
+            return config.get('clean', {}).get('shared_directory_threshold', 2)
         except (json.JSONDecodeError, IOError):
             return 2  # Default threshold
     
@@ -439,7 +452,7 @@ class FreightOrchestrator:
         try:
             with open(self.global_config_path, 'r') as f:
                 config = json.load(f)
-            return config.get('settings', {}).get('shared_directory_ignore', default_ignore)
+            return config.get('clean', {}).get('shared_directory_ignore', default_ignore)
         except (json.JSONDecodeError, IOError):
             return default_ignore
     
