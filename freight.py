@@ -213,7 +213,7 @@ class FreightOrchestrator:
         
         for dep in deps:
             try:
-                result = subprocess.run(['which', dep], capture_output=True, check=True)
+                result = subprocess.run(['which', dep], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
                 if not result.stdout.strip():
                     missing_deps.append(dep)
             except (subprocess.CalledProcessError, FileNotFoundError):
@@ -619,8 +619,9 @@ class FreightOrchestrator:
                 # Run freight-scan.sh on this subdirectory, suppressing output
                 result = subprocess.run(
                     [str(scan_script), str(subdir)], 
-                    capture_output=True, 
-                    text=True, 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE, 
+                    universal_newlines=True, 
                     check=True
                 )
                 print(f"{Colors.GREEN}✓{Colors.END}")
