@@ -342,8 +342,12 @@ class FreightOrchestrator:
         if not results:
             return
         
-        block_width = (terminal_width - len(results)) // len(results)  # Account for separators
-        block_width = max(30, block_width)  # Minimum block width
+        # Calculate consistent spacing
+        num_blocks = len(results)
+        separator_width = 2  # Fixed 2-space separator between blocks
+        total_separator_space = (num_blocks - 1) * separator_width
+        available_width = terminal_width - total_separator_space
+        block_width = max(30, available_width // num_blocks)
         
         # Create formatted blocks for each directory
         blocks = []
@@ -352,19 +356,22 @@ class FreightOrchestrator:
             blocks.append(block_lines)
         
         # Find max height
-        max_height = max(len(block) for block in blocks)
+        max_height = max(len(block) for block in blocks) if blocks else 0
         
         # Pad blocks to same height
         for block in blocks:
             while len(block) < max_height:
                 block.append(" " * block_width)
         
-        # Print blocks side by side
+        # Print blocks side by side with consistent spacing
         for line_idx in range(max_height):
             line_parts = []
-            for block in blocks:
+            for i, block in enumerate(blocks):
                 line_parts.append(block[line_idx])
-            print(" ".join(line_parts))
+                # Add separator between blocks (but not after the last one)
+                if i < len(blocks) - 1:
+                    line_parts.append(" " * separator_width)
+            print("".join(line_parts))
         
         # Add separator line
         print()
@@ -373,40 +380,53 @@ class FreightOrchestrator:
         """Format a single directory as a block with fixed width"""
         lines = []
         
+        def pad_line(text: str, target_width: int) -> str:
+            """Pad a line to target width, accounting for ANSI color codes"""
+            # Count visible characters (excluding ANSI codes)
+            import re
+            visible_text = re.sub(r'\x1b\[[0-9;]*m', '', text)
+            padding_needed = max(0, target_width - len(visible_text))
+            return text + (" " * padding_needed)
+        
         # Directory name with status icon (truncate if too long)
-        name_line = f"{result.name} {result.status_icon}"
-        if len(result.name) > width - 3:  # Account for status icon
-            name_line = f"{result.name[:width-6]}... {result.status_icon}"
-        lines.append(name_line.ljust(width))
+        display_name = result.name
+        if len(display_name) > width - 3:  # Account for status icon space
+            display_name = display_name[:width-6] + "..."
+        name_line = f"{display_name} {result.status_icon}"
+        lines.append(pad_line(name_line, width))
         
         if result.has_scan:
             # Basic scan stats
-            lines.append(f"Size: {result.format_size()}".ljust(width))
-            lines.append(f"Files: {result.file_count:,}".ljust(width))
+            lines.append(pad_line(f"Size: {result.format_size()}", width))
+            lines.append(pad_line(f"Files: {result.file_count:,}", width))
             
             if result.scan_time:
                 scan_date = result.scan_time[:10]  # Just date part
-                lines.append(f"Scanned: {scan_date}".ljust(width))
+                lines.append(pad_line(f"Scanned: {scan_date}", width))
             
             # Problem directories if available
             if result.has_clean_data:
                 problem_dirs = result.problem_directories
                 if problem_dirs:
                     total_savings = sum(p.get('bytes_saved', 0) for p in problem_dirs)
-                    lines.append(f"Savings: {self.format_size(total_savings)}".ljust(width))
+                    lines.append(pad_line(f"Savings: {self.format_size(total_savings)}", width))
                     
                     # Show up to 2 problem directories
-                    for i, prob_dir in enumerate(problem_dirs[:2]):
+                    for prob_dir in problem_dirs[:2]:
                         pattern = prob_dir.get('pattern', 'unknown')
                         size = self.format_size(prob_dir.get('bytes_saved', 0))
-                        if len(pattern) > width - 8:  # Account for size display
-                            pattern = pattern[:width-11] + "..."
-                        lines.append(f"• {pattern} ({size})".ljust(width))
+                        # Truncate pattern if too long
+                        max_pattern_len = width - len(size) - 4  # Account for "• " and " ()"
+                        if len(pattern) > max_pattern_len:
+                            pattern = pattern[:max_pattern_len-3] + "..."
+                        line_text = f"• {pattern} ({size})"
+                        lines.append(pad_line(line_text, width))
                     
                     if len(problem_dirs) > 2:
-                        lines.append(f"+ {len(problem_dirs) - 2} more...".ljust(width))
+                        lines.append(pad_line(f"+ {len(problem_dirs) - 2} more...", width))
         else:
-            lines.append(f"{Colors.RED}Not scanned{Colors.END}".ljust(width))
+            not_scanned_line = f"{Colors.RED}Not scanned{Colors.END}"
+            lines.append(pad_line(not_scanned_line, width))
         
         return lines
     
