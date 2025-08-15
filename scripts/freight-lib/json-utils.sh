@@ -4,39 +4,23 @@
 
 # Create scan JSON log
 create_scan_json() {
-    local target_dir="$1"
-    local size_bytes="$2"
-    local file_count="$3"
-    local tool_name="$4"
-    local tool_version="$5"
-    local directory_mtime="$6"
+    local size_bytes="$1"
+    local file_count="$2"
+    local directory_mtime="$3"
     
     local scan_time
     scan_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     
-    local scan_id
-    scan_id=$(date +"%Y%m%d_%H%M%S")
-    
     jq -n \
-        --arg scan_id "$scan_id" \
-        --arg directory "$target_dir" \
         --arg scan_time "$scan_time" \
         --argjson size_bytes "$size_bytes" \
         --argjson file_count "$file_count" \
-        --arg status "completed" \
-        --arg tool "$tool_name" \
-        --arg version "$tool_version" \
         --arg directory_mtime "$directory_mtime" \
         '{
-            scan_id: $scan_id,
-            directory: $directory,
             scan_time: $scan_time,
             size_bytes: $size_bytes,
             file_count: $file_count,
-            directory_mtime: $directory_mtime,
-            status: $status,
-            tool: $tool,
-            version: $version
+            directory_mtime: $directory_mtime
         }'
 }
 

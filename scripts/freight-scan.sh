@@ -15,59 +15,45 @@ source "$SCRIPT_DIR/freight-lib/json-utils.sh"
 
 usage() {
     cat << EOF
-Usage: $SCRIPT_NAME [migration_root]
+Usage: $SCRIPT_NAME [target_directory]
 
-Scans all immediate subdirectories and creates .freight/scan.json files.
-If no migration_root is provided, uses the root from global config.
+Scans a directory and creates scan.json in the current directory.
+If no target_directory is provided, scans the current directory.
 
 Examples:
-    $SCRIPT_NAME                # Uses migration root from global config
-    $SCRIPT_NAME /nfs1/students # Uses explicit migration root
+    $SCRIPT_NAME                # Scans current directory
+    $SCRIPT_NAME /path/to/scan  # Scans specified directory
 EOF
 }
 
 
 
-# Check if directory needs scanning based on mtime
-needs_scan() {
-    local target_dir="$1"
-    local scan_file="$target_dir/.freight/scan.json"
+
+
+main() {
+    local target_dir=""
     
-    # Always scan if no previous scan exists
-    [ ! -f "$scan_file" ] && return 0
-    
-    # Get directory mtime (cross-platform)
-    local dir_mtime
-    if stat -c %Y "$target_dir" >/dev/null 2>&1; then
-        # Linux stat
-        dir_mtime=$(stat -c %Y "$target_dir")
-    elif stat -f %m "$target_dir" >/dev/null 2>&1; then
-        # macOS stat  
-        dir_mtime=$(stat -f %m "$target_dir")
+    # Check if target directory was provided
+    if [ $# -eq 1 ]; then
+        target_dir="$1"
+    elif [ $# -eq 0 ]; then
+        target_dir="."
     else
-        dir_mtime="0"
+        usage
+        exit 1
     fi
     
-    # Get last scan's directory mtime from JSON
-    local last_dir_mtime
-    last_dir_mtime=$(jq -r '.directory_mtime // empty' "$scan_file" 2>/dev/null || echo "")
+    # Validate directory
+    [ -d "$target_dir" ] || { log_error "Directory not found: $target_dir"; exit 1; }
+    [ -r "$target_dir" ] || { log_error "Directory not readable: $target_dir"; exit 1; }
     
-    # If no mtime in scan file, assume we need to rescan
-    [ -z "$last_dir_mtime" ] && return 0
+    # Check dependencies
+    command -v du >/dev/null || { log_error "Missing dependency: du"; exit 1; }
+    command -v jq >/dev/null || { log_error "Missing dependency: jq"; exit 1; }
     
-    # Compare mtimes - if directory is newer, we need to scan
-    [ "$dir_mtime" -gt "$last_dir_mtime" ] && return 0
+    target_dir=$(realpath "$target_dir")
     
-    # Directory unchanged
-    return 1
-}
-
-# Scan a single directory
-scan_directory() {
-    local target_dir="$1"
-    local freight_dir="$target_dir/.freight"
-    
-    mkdir -p "$freight_dir"
+    log_info "Starting scan of: $target_dir"
     
     # Get directory mtime (cross-platform)
     local dir_mtime  
@@ -97,95 +83,14 @@ scan_directory() {
     fi
     
     local file_count
-    file_count=$(find "$target_dir" -type f -not -path "$freight_dir/*" | wc -l)
+    file_count=$(find "$target_dir" -type f | wc -l)
     
-    # Create JSON log with mtime
-    create_scan_json "$target_dir" "$size_bytes" "$file_count" "$SCRIPT_NAME" "$VERSION" "$dir_mtime" \
-        > "$freight_dir/scan.json"
-    
-    echo "$size_bytes"
-}
-
-main() {
-    local migration_root=""
-    
-    # Check if migration root was provided
-    if [ $# -eq 1 ]; then
-        migration_root="$1"
-    elif [ $# -eq 0 ]; then
-        # Try to get from global config
-        if ! migration_root=$(get_migration_root); then
-            exit 1
-        fi
-    else
-        usage
-        exit 1
-    fi
-    
-    # Validate directory
-    [ -d "$migration_root" ] || { log_error "Directory not found: $migration_root"; exit 1; }
-    [ -r "$migration_root" ] || { log_error "Directory not readable: $migration_root"; exit 1; }
-    
-    # Check dependencies
-    command -v du >/dev/null || { log_error "Missing dependency: du"; exit 1; }
-    command -v jq >/dev/null || { log_error "Missing dependency: jq"; exit 1; }
-    
-    migration_root=$(realpath "$migration_root")
-    
-    log_info "Starting scan of: $migration_root"
-    
-    # Get subdirectories
-    local subdirs=()
-    while IFS= read -r -d '' dir; do
-        subdirs+=("$dir")
-    done < <(find "$migration_root" -mindepth 1 -maxdepth 1 -type d -print0)
-    
-    [ ${#subdirs[@]} -gt 0 ] || { log_warning "No subdirectories found"; exit 0; }
-    
-    log_info "Found ${#subdirs[@]} directories to scan"
-    
-    local total_bytes=0
-    local current=0
-    
-    # Scan each directory
-    local skipped=0
-    for dir in "${subdirs[@]}"; do
-        current=$((current + 1))
-        local dir_name
-        dir_name=$(basename "$dir")
-        
-        show_progress "$current" "${#subdirs[@]}" "Checking: $dir_name"
-        
-        # Check if directory needs scanning
-        if needs_scan "$dir"; then
-            printf " [SCAN]"
-            local dir_size
-            if dir_size=$(scan_directory "$dir"); then
-                total_bytes=$((total_bytes + dir_size))
-                printf " ${GREEN}✓${NC}"
-            else
-                printf " ${RED}✗${NC}"
-            fi
-        else
-            # Directory unchanged, get size from existing scan
-            local existing_size
-            existing_size=$(jq -r '.size_bytes // 0' "$dir/.freight/scan.json" 2>/dev/null || echo "0")
-            total_bytes=$((total_bytes + existing_size))
-            skipped=$((skipped + 1))
-            printf " ${YELLOW}↻${NC}"
-        fi
-    done
-    
-    finish_progress
-    
-    # Update global config
-    update_global_config "scan" "total_size_bytes=$total_bytes" "total_directories=${#subdirs[@]}"
+    # Create JSON log in current directory (always overwrite)
+    create_scan_json "$size_bytes" "$file_count" "$dir_mtime" > "./scan.json"
     
     log_success "Scan completed!"
-    log_info "Total: $(bytes_to_human "$total_bytes") across ${#subdirs[@]} directories"
-    if [ "$skipped" -gt 0 ]; then
-        log_info "Skipped $skipped unchanged directories (mtime optimization)"
-    fi
+    log_info "Scanned: $(bytes_to_human "$size_bytes") with $file_count files"
+    log_info "Results saved to: ./scan.json"
 }
 
 main "$@"
