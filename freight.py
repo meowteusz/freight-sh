@@ -83,6 +83,12 @@ class ScanResult:
         """Returns whether clean data is available"""
         return bool(self.clean_data)
     
+    @property
+    def problem_directories(self) -> List[Dict[str, Any]]:
+        """Returns list of problem directories with their sizes"""
+        patterns = self.clean_data.get('patterns', [])
+        return [p for p in patterns if p.get('bytes_saved', 0) > 0]
+    
     def format_size(self) -> str:
         """Format bytes to human readable format"""
         if not self.has_scan:
@@ -267,7 +273,7 @@ class FreightOrchestrator:
             pass
     
     def display_overview(self) -> None:
-        """Display the overview of scan status with block format for directories"""
+        """Display the overview of scan status with grid layout for directories"""
         stats = self.get_statistics()
         
         # Update config.json with calculated stats
@@ -288,7 +294,7 @@ class FreightOrchestrator:
             
         # Add cleaning savings if any directories have clean data
         if stats['total_cleanable_bytes'] > 0:
-            print(f"  Potential cleaning savings: {Colors.YELLOW}{self.format_size(stats['total_cleanable_bytes'])}{Colors.END}")
+            print(f"  Potential space savings: {Colors.YELLOW}{self.format_size(stats['total_cleanable_bytes'])}{Colors.END}")
 
         # Top three largest directories
         scanned_results = [r for r in self.scan_results if r.has_scan and r.size_bytes > 0]
@@ -302,17 +308,110 @@ class FreightOrchestrator:
                 medal = medals[i] if i < len(medals) else " "
                 print(f"  {medal} {result.name}: {Colors.WHITE}{result.format_size()}{Colors.END}")
         
-        # Directory status blocks
+        # Directory status in grid layout
         print(f"\n{Colors.BOLD}Directory Status:{Colors.END}")
         print(f"{Colors.CYAN}{'=' * 60}{Colors.END}")
         
-        for result in self.scan_results:
-            self._display_directory_block(result)
+        self._display_directory_grid()
         
         print(f"{Colors.CYAN}{'=' * 60}{Colors.END}")
     
+    def _display_directory_grid(self) -> None:
+        """Display directories in a grid layout"""
+        import os
+        
+        # Get terminal width, default to 80 if not available
+        try:
+            terminal_width = os.get_terminal_size().columns
+        except (OSError, AttributeError):
+            terminal_width = 80
+        
+        # Calculate grid parameters
+        min_block_width = 35  # Minimum width for a directory block
+        max_blocks_per_row = max(1, terminal_width // min_block_width)
+        
+        # Group results into rows
+        for i in range(0, len(self.scan_results), max_blocks_per_row):
+            row_results = self.scan_results[i:i + max_blocks_per_row]
+            
+            # Display this row
+            self._display_directory_row(row_results, terminal_width)
+    
+    def _display_directory_row(self, results: List[ScanResult], terminal_width: int) -> None:
+        """Display a row of directory blocks side by side"""
+        if not results:
+            return
+        
+        block_width = (terminal_width - len(results)) // len(results)  # Account for separators
+        block_width = max(30, block_width)  # Minimum block width
+        
+        # Create formatted blocks for each directory
+        blocks = []
+        for result in results:
+            block_lines = self._format_directory_block(result, block_width)
+            blocks.append(block_lines)
+        
+        # Find max height
+        max_height = max(len(block) for block in blocks)
+        
+        # Pad blocks to same height
+        for block in blocks:
+            while len(block) < max_height:
+                block.append(" " * block_width)
+        
+        # Print blocks side by side
+        for line_idx in range(max_height):
+            line_parts = []
+            for block in blocks:
+                line_parts.append(block[line_idx])
+            print(" ".join(line_parts))
+        
+        # Add separator line
+        print()
+    
+    def _format_directory_block(self, result: ScanResult, width: int) -> List[str]:
+        """Format a single directory as a block with fixed width"""
+        lines = []
+        
+        # Directory name with status icon (truncate if too long)
+        name_line = f"{result.name} {result.status_icon}"
+        if len(result.name) > width - 3:  # Account for status icon
+            name_line = f"{result.name[:width-6]}... {result.status_icon}"
+        lines.append(name_line.ljust(width))
+        
+        if result.has_scan:
+            # Basic scan stats
+            lines.append(f"Size: {result.format_size()}".ljust(width))
+            lines.append(f"Files: {result.file_count:,}".ljust(width))
+            
+            if result.scan_time:
+                scan_date = result.scan_time[:10]  # Just date part
+                lines.append(f"Scanned: {scan_date}".ljust(width))
+            
+            # Problem directories if available
+            if result.has_clean_data:
+                problem_dirs = result.problem_directories
+                if problem_dirs:
+                    total_savings = sum(p.get('bytes_saved', 0) for p in problem_dirs)
+                    lines.append(f"Savings: {self.format_size(total_savings)}".ljust(width))
+                    
+                    # Show up to 2 problem directories
+                    for i, prob_dir in enumerate(problem_dirs[:2]):
+                        pattern = prob_dir.get('pattern', 'unknown')
+                        size = self.format_size(prob_dir.get('bytes_saved', 0))
+                        if len(pattern) > width - 8:  # Account for size display
+                            pattern = pattern[:width-11] + "..."
+                        lines.append(f"• {pattern} ({size})".ljust(width))
+                    
+                    if len(problem_dirs) > 2:
+                        lines.append(f"+ {len(problem_dirs) - 2} more...".ljust(width))
+        else:
+            lines.append(f"{Colors.RED}Not scanned{Colors.END}".ljust(width))
+        
+        return lines
+    
     def _display_directory_block(self, result: ScanResult) -> None:
-        """Display a single directory as a block with stats"""
+        """Display a single directory as a block with stats (legacy method)"""
         # Directory name with status icon
         print(f"\n{Colors.BOLD}{result.name}{Colors.END} {result.status_icon}")
         
@@ -326,9 +425,21 @@ class FreightOrchestrator:
             if result.directory_mtime:
                 print(f"  Modified: {Colors.CYAN}{result.directory_mtime}{Colors.END}")
             
-            # Clean data if available and has savings
-            if result.has_clean_data and result.bytes_cleaned > 0:
-                print(f"  Storage cost: {Colors.YELLOW}{self.format_size(result.bytes_cleaned)}{Colors.END}")
+            # Problem directories and potential savings
+            if result.has_clean_data:
+                problem_dirs = result.problem_directories
+                if problem_dirs:
+                    total_savings = sum(p.get('bytes_saved', 0) for p in problem_dirs)
+                    print(f"  Potential savings: {Colors.YELLOW}{self.format_size(total_savings)}{Colors.END}")
+                    
+                    # Show problem directories
+                    for prob_dir in problem_dirs[:3]:  # Show up to 3
+                        pattern = prob_dir.get('pattern', 'unknown')
+                        size = self.format_size(prob_dir.get('bytes_saved', 0))
+                        print(f"    • {Colors.RED}{pattern}{Colors.END}: {Colors.YELLOW}{size}{Colors.END}")
+                    
+                    if len(problem_dirs) > 3:
+                        print(f"    • {Colors.CYAN}+{len(problem_dirs) - 3} more problem directories{Colors.END}")
         else:
             print(f"  {Colors.RED}Not scanned{Colors.END}")
         
