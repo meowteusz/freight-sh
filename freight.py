@@ -483,10 +483,7 @@ class FreightOrchestrator:
             print(f"    {Colors.YELLOW}freight.py init{Colors.END}")
             sys.exit(1)
         
-        # Create .freight-root marker file only
-        freight_root_marker = root_dir / '.freight-root'
-        freight_root_marker.touch()
-        print(f"{Colors.GREEN}✓{Colors.END} Created .freight-root marker: {freight_root_marker}")
+
         
         # Create/update global config
         config_created = self.ensure_global_config(str(root_dir))

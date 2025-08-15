@@ -157,9 +157,30 @@ main() {
     
     log_info "Starting scan of: $target_dir"
     
-    # Check if this is a migration root by looking for .freight-root marker
-    if [ -f "$target_dir/.freight-root" ]; then
-        log_info "Detected migration root (.freight-root marker found)"
+    # Check if this is a migration root by looking for config.json with migration_root
+    local config_file="$SCRIPT_DIR/../config.json"
+    local is_migration_root=false
+    
+    if [ -f "$config_file" ]; then
+        # Get migration root from config.json using jq
+        local config_migration_root
+        config_migration_root=$(jq -r '.migration_root // empty' "$config_file" 2>/dev/null)
+        
+        if [ -n "$config_migration_root" ]; then
+            # Resolve both paths to compare them properly
+            local resolved_config_root
+            resolved_config_root=$(realpath "$config_migration_root" 2>/dev/null)
+            local resolved_target_dir
+            resolved_target_dir=$(realpath "$target_dir" 2>/dev/null)
+            
+            if [ "$resolved_config_root" = "$resolved_target_dir" ]; then
+                is_migration_root=true
+                log_info "Detected migration root (matches config.json migration_root: $config_migration_root)"
+            fi
+        fi
+    fi
+    
+    if [ "$is_migration_root" = true ]; then
         scan_migration_root "$target_dir"
     else
         # Single directory scan (original behavior)
