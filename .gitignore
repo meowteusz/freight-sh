@@ -1,3 +1,12 @@
-.DS_STORE
+.DS_Store
 
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Documentation files
 ARCHITECTURE_SIMPLE.md
+AGENTS.md
