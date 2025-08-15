@@ -26,45 +26,23 @@ create_scan_json() {
 
 # Create clean JSON log
 create_clean_json() {
-    local target_dir="$1"
-    local bytes_cleaned="$2"
-    local items_cleaned="$3"
-    local cleaned_items_json="$4"
-    local patterns_json="$5"
-    local dry_run="$6"
-    local tool_name="$7"
-    local tool_version="$8"
+    local bytes_cleaned="$1"
+    local items_cleaned="$2"
+    local patterns_json="$3"
     
     local clean_time
     clean_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     
-    local clean_id
-    clean_id=$(date +"%Y%m%d_%H%M%S")
-    
     jq -n \
-        --arg clean_id "$clean_id" \
-        --arg directory "$target_dir" \
         --arg clean_time "$clean_time" \
         --argjson bytes_cleaned "$bytes_cleaned" \
         --argjson items_cleaned "$items_cleaned" \
-        --argjson cleaned_items "$cleaned_items_json" \
         --argjson patterns "$patterns_json" \
-        --arg status "completed" \
-        --arg tool "$tool_name" \
-        --arg version "$tool_version" \
-        --arg dry_run "$dry_run" \
         '{
-            clean_id: $clean_id,
-            directory: $directory,
             clean_time: $clean_time,
             bytes_cleaned: $bytes_cleaned,
             items_cleaned: $items_cleaned,
-            cleaned_items: $cleaned_items,
-            patterns_used: $patterns,
-            status: $status,
-            tool: $tool,
-            version: $version,
-            dry_run: ($dry_run == "true")
+            patterns: $patterns
         }'
 }
 

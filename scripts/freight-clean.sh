@@ -71,7 +71,8 @@ clean_directory() {
     mkdir -p "$freight_dir"
     
     local total_cleaned=0
-    local cleaned_items=()
+    local items_cleaned=0
+    local pattern_results=()
     
     # Check each directory name/path for matches
     for dir_name in "${dir_names[@]}"; do
@@ -89,45 +90,49 @@ clean_directory() {
             target_path="$target_dir/$dir_name"
         fi
         
-        # Skip if directory doesn't exist
-        [ -d "$target_path" ] || continue
-        
-        local item_size=0
-        if command -v gdu >/dev/null 2>&1; then
-            # GNU du available
-            item_size=$(gdu -sb "$target_path" 2>/dev/null | cut -f1 || echo "0")
-        elif du -sb "$target_path" >/dev/null 2>&1; then
-            # Linux du with -b flag
-            item_size=$(du -sb "$target_path" 2>/dev/null | cut -f1 || echo "0")
-        else
-            # macOS du, use -k and convert to bytes
-            local size_kb
-            size_kb=$(du -sk "$target_path" 2>/dev/null | cut -f1 || echo "0")
-            item_size=$((size_kb * 1024))
-        fi
-        
-        if [ "$dry_run" = "true" ]; then
-            cleaned_items+=("$dir_name ($(bytes_to_human "$item_size"))")
-        else
-            if rm -rf "$target_path" 2>/dev/null; then
-                cleaned_items+=("$dir_name")
+        # Check if directory exists
+        if [ -d "$target_path" ]; then
+            local item_size=0
+            if command -v gdu >/dev/null 2>&1; then
+                # GNU du available
+                item_size=$(gdu -sb "$target_path" 2>/dev/null | cut -f1 || echo "0")
+            elif du -sb "$target_path" >/dev/null 2>&1; then
+                # Linux du with -b flag
+                item_size=$(du -sb "$target_path" 2>/dev/null | cut -f1 || echo "0")
+            else
+                # macOS du, use -k and convert to bytes
+                local size_kb
+                size_kb=$(du -sk "$target_path" 2>/dev/null | cut -f1 || echo "0")
+                item_size=$((size_kb * 1024))
             fi
+            
+            if [ "$dry_run" = "false" ]; then
+                if rm -rf "$target_path" 2>/dev/null; then
+                    items_cleaned=$((items_cleaned + 1))
+                    total_cleaned=$((total_cleaned + item_size))
+                    pattern_results+=("{\"pattern\": \"$dir_name\", \"bytes_saved\": $item_size}")
+                else
+                    pattern_results+=("{\"pattern\": \"$dir_name\", \"bytes_saved\": 0}")
+                fi
+            else
+                items_cleaned=$((items_cleaned + 1))
+                total_cleaned=$((total_cleaned + item_size))
+                pattern_results+=("{\"pattern\": \"$dir_name\", \"bytes_saved\": $item_size}")
+            fi
+        else
+            pattern_results+=("{\"pattern\": \"$dir_name\", \"bytes_saved\": 0}")
         fi
-        
-        total_cleaned=$((total_cleaned + item_size))
     done
     
-    # Create JSON log
-    local cleaned_items_json patterns_json
-    if [ ${#cleaned_items[@]} -eq 0 ]; then
-        cleaned_items_json='[]'
+    # Create JSON log with pattern results
+    local patterns_json
+    if [ ${#pattern_results[@]} -eq 0 ]; then
+        patterns_json='[]'
     else
-        cleaned_items_json=$(printf '%s\n' "${cleaned_items[@]}" | jq -R . | jq -s . 2>/dev/null || echo '[]')
+        patterns_json="[$(IFS=','; echo "${pattern_results[*]}")]"
     fi
-    patterns_json=$(printf '%s\n' "${dir_names[@]}" | jq -R . | jq -s .)
     
-    create_clean_json "$target_dir" "$total_cleaned" "${#cleaned_items[@]}" \
-        "$cleaned_items_json" "$patterns_json" "$dry_run" "$SCRIPT_NAME" "$VERSION" \
+    create_clean_json "$total_cleaned" "$items_cleaned" "$patterns_json" \
         > "$freight_dir/clean.json"
     
     echo "$total_cleaned"
