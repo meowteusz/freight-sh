@@ -161,8 +161,6 @@ main() {
     [ -d "$migration_root" ] || { log_error "Directory not found: $migration_root"; exit 1; }
     [ -w "$migration_root" ] || { log_error "Directory not writable: $migration_root"; exit 1; }
     
-    command -v jq >/dev/null || { log_error "Missing dependency: jq"; exit 1; }
-    
     migration_root=$(realpath "$migration_root")
     
     log_info "Starting clean of: $migration_root"

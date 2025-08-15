@@ -102,10 +102,10 @@ get_migration_root() {
     fi
     
     local migration_root
-    migration_root=$(jq -r '.root_directory // empty' "$config_file" 2>/dev/null)
+    migration_root=$(jq -r '.migration_root // empty' "$config_file" 2>/dev/null)
     
     if [ -z "$migration_root" ]; then
-        echo "Error: No root_directory found in global config" >&2
+        echo "Error: No migration_root found in global config" >&2
         return 1
     fi
     

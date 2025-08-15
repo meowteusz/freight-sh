@@ -207,6 +207,25 @@ class FreightOrchestrator:
         except (json.JSONDecodeError, IOError):
             print(f"{Colors.YELLOW}⚠️  Could not read config version{Colors.END}\n")
     
+    def check_dependencies(self, deps: List[str]) -> None:
+        """Check for required system dependencies"""
+        missing_deps = []
+        
+        for dep in deps:
+            try:
+                result = subprocess.run(['which', dep], capture_output=True, check=True)
+                if not result.stdout.strip():
+                    missing_deps.append(dep)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                missing_deps.append(dep)
+        
+        if missing_deps:
+            print(f"{Colors.RED}Error: Missing required dependencies:{Colors.END}")
+            for dep in missing_deps:
+                print(f"  • {dep}")
+            print(f"\nPlease install the missing dependencies and try again.")
+            sys.exit(1)
+    
     def get_migration_root_from_config(self) -> Optional[str]:
         """Get migration root from global config file"""
         if not self.global_config_path.exists():
@@ -516,6 +535,12 @@ class FreightOrchestrator:
     
     def run_script(self, script_name: str, extra_args: Optional[List[str]] = None) -> None:
         """Run a freight script with passthrough arguments"""
+        # Check dependencies for the specific script
+        if script_name == 'clean':
+            self.check_dependencies(['jq', 'du', 'find', 'realpath'])
+        elif script_name == 'scan':
+            self.check_dependencies(['jq', 'du', 'stat', 'find', 'realpath'])
+        
         # Path to the script
         script_path = self.script_dir / 'scripts' / f'freight-{script_name}.sh'
         
@@ -542,9 +567,127 @@ class FreightOrchestrator:
             print(f"{Colors.RED}Error: freight-{script_name}.sh script not found{Colors.END}")
             raise
     
+    def run_orchestrated_scan(self) -> None:
+        """Run orchestrated scan of all subdirectories with mtime optimization"""
+        # Check dependencies needed for scanning
+        self.check_dependencies(['jq', 'du', 'stat', 'find', 'realpath'])
+        
+        if not self.migration_root.exists():
+            raise FileNotFoundError(f"Migration root not found: {self.migration_root}")
+        
+        if not self.migration_root.is_dir():
+            raise NotADirectoryError(f"Path is not a directory: {self.migration_root}")
+        
+        # Find all immediate subdirectories, excluding .freight
+        subdirs = [d for d in self.migration_root.iterdir() if d.is_dir() and d.name != '.freight']
+        
+        if not subdirs:
+            print(f"{Colors.YELLOW}No subdirectories found in migration root: {self.migration_root}{Colors.END}")
+            return
+        
+        subdirs.sort()  # Consistent ordering
+        total_dirs = len(subdirs)
+        successful_scans = 0
+        skipped_scans = 0
+        failed_scans = 0
+        failed_dirs = []
+        
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Freight Orchestrated Scan{Colors.END}")
+        print(f"{Colors.CYAN}{'=' * 60}{Colors.END}")
+        print(f"Root: {Colors.WHITE}{self.migration_root}{Colors.END}")
+        print(f"Found {Colors.WHITE}{total_dirs}{Colors.END} subdirectories to scan\n")
+        
+        # Path to freight-scan.sh script
+        scan_script = self.script_dir / 'scripts' / 'freight-scan.sh'
+        if not scan_script.exists():
+            raise FileNotFoundError(f"freight-scan.sh not found: {scan_script}")
+        
+        for i, subdir in enumerate(subdirs, 1):
+            dir_name = subdir.name
+            
+            # Check if we should skip based on mtime optimization
+            should_skip, reason = self._should_skip_scan(subdir)
+            
+            if should_skip:
+                print(f"[{i:3d}/{total_dirs}] Scanning {dir_name}... {Colors.YELLOW}(skipped - {reason}){Colors.END}")
+                skipped_scans += 1
+                continue
+            
+            print(f"[{i:3d}/{total_dirs}] Scanning {dir_name}... ", end="", flush=True)
+            
+            try:
+                # Run freight-scan.sh on this subdirectory, suppressing output
+                result = subprocess.run(
+                    [str(scan_script), str(subdir)], 
+                    capture_output=True, 
+                    text=True, 
+                    check=True
+                )
+                print(f"{Colors.GREEN}✓{Colors.END}")
+                successful_scans += 1
+                
+            except subprocess.CalledProcessError as e:
+                print(f"{Colors.RED}✗{Colors.END}")
+                failed_scans += 1
+                failed_dirs.append((dir_name, e.stderr.strip() if e.stderr else "Unknown error"))
+                
+            except Exception as e:
+                print(f"{Colors.RED}✗{Colors.END}")
+                failed_scans += 1
+                failed_dirs.append((dir_name, str(e)))
+        
+        # Summary
+        print(f"\n{Colors.BOLD}Scan Summary:{Colors.END}")
+        print(f"  Successful: {Colors.GREEN}{successful_scans}{Colors.END}")
+        print(f"  Skipped: {Colors.YELLOW}{skipped_scans}{Colors.END}")
+        print(f"  Failed: {Colors.RED}{failed_scans}{Colors.END}")
+        print(f"  Total: {Colors.WHITE}{total_dirs}{Colors.END}")
+        
+        # Report failed directories
+        if failed_dirs:
+            print(f"\n{Colors.BOLD}{Colors.RED}Failed Directories:{Colors.END}")
+            for dir_name, error in failed_dirs:
+                print(f"  • {dir_name}: {error}")
+        
+        print(f"{Colors.CYAN}{'=' * 60}{Colors.END}")
+    
+    def _should_skip_scan(self, subdir: Path) -> Tuple[bool, str]:
+        """Check if a directory should be skipped based on mtime optimization"""
+        scan_file = subdir / '.freight' / 'scan.json'
+        
+        # If no scan.json exists, don't skip
+        if not scan_file.exists():
+            return False, ""
+        
+        try:
+            # Get directory mtime
+            dir_stat = subdir.stat()
+            dir_mtime = int(dir_stat.st_mtime)
+            
+            # Get scan file mtime from JSON
+            with open(scan_file, 'r') as f:
+                scan_data = json.load(f)
+            
+            scan_dir_mtime = scan_data.get('directory_mtime')
+            if scan_dir_mtime is None:
+                return False, "no mtime in scan data"
+            
+            scan_dir_mtime = int(scan_dir_mtime)
+            
+            # Skip if directory hasn't been modified since last scan
+            if dir_mtime <= scan_dir_mtime:
+                return True, "no changes"
+            else:
+                return False, "directory modified"
+                
+        except (json.JSONDecodeError, IOError, ValueError, KeyError) as e:
+            # If we can't read the scan file or mtime, don't skip
+            return False, f"scan data invalid: {e}"
+    
     def run_scan(self, extra_args: Optional[List[str]] = None) -> None:
-        """Run the freight-scan.sh script"""
-        self.run_script('scan', extra_args=extra_args)
+        """Run the freight-scan.sh script with orchestrator logic"""
+        # Run orchestrated scan instead of calling script directly
+        self.run_orchestrated_scan()
 
     def analyze_shared_directories(self) -> Dict[str, int]:
         """Analyze shared directories across all subdirectories"""
