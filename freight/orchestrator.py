@@ -110,6 +110,34 @@ class FreightOrchestrator:
             print(f"\nPlease install the missing dependencies and try again.")
             sys.exit(1)
     
+    def get_overview_data(self) -> Dict[str, Any]:
+        """Get overview data as JSON-serializable dict"""
+        stats = self.get_statistics()
+        
+        # Update config.json with calculated stats
+        self.config_manager.update_config_stats(stats)
+        
+        # Convert scan results to serializable format
+        directories = []
+        for result in self.scan_results:
+            dir_data = {
+                'name': result.name,
+                'directory': result.directory,
+                'has_scan': result.has_scan,
+                'size_bytes': result.size_bytes,
+                'file_count': result.file_count,
+                'has_clean_data': result.has_clean_data,
+                'bytes_cleaned': result.bytes_cleaned,
+                'scan_time': result.scan_time
+            }
+            directories.append(dir_data)
+        
+        return {
+            'stats': stats,
+            'directories': directories,
+            'migration_root': str(self.migration_root)
+        }
+
     def display_overview(self) -> None:
         """Display the overview of scan status with grid layout for directories"""
         stats = self.get_statistics()
