@@ -185,6 +185,7 @@ class FreightOrchestrator:
                 "dry_run": True,
                 "verbose": False,
                 "parallel_jobs": 4,
+                "shared_directory_threshold": 2,
                 "exclude_patterns": [
                     ".git",
                     ".svn", 
@@ -385,6 +386,92 @@ class FreightOrchestrator:
             print(f"{Colors.RED}Error: freight-scan.sh script not found{Colors.END}")
             raise
 
+    def analyze_shared_directories(self) -> Dict[str, int]:
+        """Analyze shared directories across all subdirectories"""
+        if not self.migration_root.exists():
+            raise FileNotFoundError(f"Migration root not found: {self.migration_root}")
+        
+        directory_counts = {}
+        
+        # Find all immediate subdirectories, excluding .freight
+        subdirs = [d for d in self.migration_root.iterdir() if d.is_dir() and d.name != '.freight']
+        
+        for subdir in subdirs:
+            try:
+                # Get immediate child directories only (not recursive)
+                child_dirs = [d.name for d in subdir.iterdir() if d.is_dir()]
+                
+                # Count each directory name
+                for dir_name in child_dirs:
+                    directory_counts[dir_name] = directory_counts.get(dir_name, 0) + 1
+                    
+            except (PermissionError, OSError) as e:
+                print(f"Warning: Could not access {subdir}: {e}", file=sys.stderr)
+                continue
+        
+        return directory_counts
+    
+    def get_shared_directory_threshold(self) -> int:
+        """Get shared directory threshold from config"""
+        if not self.global_config_path.exists():
+            return 2  # Default threshold
+        
+        try:
+            with open(self.global_config_path, 'r') as f:
+                config = json.load(f)
+            return config.get('settings', {}).get('shared_directory_threshold', 2)
+        except (json.JSONDecodeError, IOError):
+            return 2  # Default threshold
+    
+    def display_shared_directories(self) -> None:
+        """Display shared directories analysis"""
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Freight Shared Directory Analysis{Colors.END}")
+        print(f"{Colors.CYAN}{'=' * 60}{Colors.END}")
+        print(f"Root: {Colors.WHITE}{self.migration_root}{Colors.END}")
+        
+        directory_counts = self.analyze_shared_directories()
+        threshold = self.get_shared_directory_threshold()
+        
+        if not directory_counts:
+            print(f"\n{Colors.YELLOW}No directories found in subdirectories.{Colors.END}")
+            return
+        
+        # Filter directories that meet the threshold
+        shared_dirs = {name: count for name, count in directory_counts.items() if count >= threshold}
+        
+        if not shared_dirs:
+            print(f"\n{Colors.YELLOW}No shared directories found with threshold >= {threshold}.{Colors.END}")
+            print(f"Total unique directory names: {len(directory_counts)}")
+            return
+        
+        # Sort by count (descending) and then by name
+        sorted_shared = sorted(shared_dirs.items(), key=lambda x: (-x[1], x[0]))
+        
+        print(f"\nThreshold: {Colors.WHITE}{threshold}{Colors.END} or more occurrences")
+        print(f"Found {Colors.GREEN}{len(sorted_shared)}{Colors.END} shared directories:")
+        print(f"\n{'Directory Name':<30} {'Count':<8} {'Percentage'}")
+        print('-' * 50)
+        
+        total_subdirs = len([d for d in self.migration_root.iterdir() if d.is_dir() and d.name != '.freight'])
+        
+        for dir_name, count in sorted_shared:
+            percentage = (count / total_subdirs * 100) if total_subdirs > 0 else 0
+            print(f"{dir_name:<30} {count:<8} {percentage:.1f}%")
+        
+        print(f"\n{Colors.BOLD}Analysis Summary:{Colors.END}")
+        print(f"  Total subdirectories scanned: {Colors.WHITE}{total_subdirs}{Colors.END}")
+        print(f"  Unique directory names found: {Colors.WHITE}{len(directory_counts)}{Colors.END}")
+        print(f"  Shared directories (>= {threshold}): {Colors.GREEN}{len(sorted_shared)}{Colors.END}")
+        
+        # Show top candidates for exclusion
+        high_frequency = [item for item in sorted_shared if item[1] >= max(3, threshold + 1)]
+        if high_frequency:
+            print(f"\n{Colors.BOLD}High-frequency directories (potential cleanup candidates):{Colors.END}")
+            for dir_name, count in high_frequency[:10]:  # Show top 10
+                print(f"  • {Colors.YELLOW}{dir_name}{Colors.END} ({count} occurrences)")
+        
+        print(f"\n{Colors.CYAN}{'=' * 60}{Colors.END}")
+
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
@@ -401,6 +488,9 @@ Examples:
   freight.py clean --dry-run         # Show what would be cleaned (dry run)
   freight.py clean                   # Clean directories using global config
   freight.py clean /nfs1/students    # Clean specific migration root
+  freight.py shared                  # Analyze shared directories using global config
+  freight.py shared /nfs1/students   # Analyze shared directories for specific root
+  freight.py shared --threshold 3    # Show directories appearing 3+ times
         """
     )
     
@@ -427,6 +517,13 @@ Examples:
                             help='Migration root directory to clean (default: from global config)')
     clean_parser.add_argument('--dry-run', action='store_true',
                             help='Show what would be cleaned without deleting files')
+    
+    # Shared command
+    shared_parser = subparsers.add_parser('shared', help='Analyze shared directories across subdirectories')
+    shared_parser.add_argument('migration_root', nargs='?', default=None,
+                             help='Migration root directory to analyze (default: from global config)')
+    shared_parser.add_argument('--threshold', type=int, default=None,
+                             help='Minimum occurrences to show (overrides config setting)')
     
     # Parse arguments
     args = parser.parse_args()
@@ -499,6 +596,31 @@ Examples:
                 print(f"Please edit the config file to customize cleaning settings before running clean operations.\n")
             
             orchestrator.run_clean(dry_run=args.dry_run)
+            
+        elif args.command == 'shared':
+            # Show shared directories analysis
+            try:
+                orchestrator = FreightOrchestrator(args.migration_root)
+            except ValueError as e:
+                if "No migration root specified" in str(e):
+                    print(f"{Colors.RED}Error:{Colors.END} No migration root found in global config.")
+                    print(f"Please run {Colors.YELLOW}freight.py init{Colors.END} first or specify a migration root explicitly.")
+                    sys.exit(1)
+                raise
+            
+            # Ensure global config exists
+            config_created = orchestrator.ensure_global_config(str(orchestrator.migration_root))
+            if config_created:
+                print(f"{Colors.YELLOW}Global configuration created at {orchestrator.global_config_path}{Colors.END}")
+                print(f"Please edit the config file to customize shared directory analysis settings.\n")
+            
+            # Override threshold if provided
+            if args.threshold is not None:
+                # Temporarily modify the threshold for this run
+                original_get_threshold = orchestrator.get_shared_directory_threshold
+                orchestrator.get_shared_directory_threshold = lambda: args.threshold
+            
+            orchestrator.display_shared_directories()
             
     except (FileNotFoundError, NotADirectoryError) as e:
         print(f"Error: {e}", file=sys.stderr)
