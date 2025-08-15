@@ -73,9 +73,21 @@ clean_directory() {
     local total_cleaned=0
     local cleaned_items=()
     
-    # Check each directory name for exact matches
+    # Check each directory name/path for matches
     for dir_name in "${dir_names[@]}"; do
-        local target_path="$target_dir/$dir_name"
+        local target_path
+        
+        # Handle absolute paths, relative paths starting with ./, and simple directory names
+        if [[ "$dir_name" = /* ]]; then
+            # Absolute path - use as-is
+            target_path="$dir_name"
+        elif [[ "$dir_name" = ./* ]] || [[ "$dir_name" = ../* ]]; then
+            # Relative path - resolve relative to target_dir
+            target_path="$target_dir/$dir_name"
+        else
+            # Simple directory name - treat as subdirectory of target_dir
+            target_path="$target_dir/$dir_name"
+        fi
         
         # Skip if directory doesn't exist
         [ -d "$target_path" ] || continue
