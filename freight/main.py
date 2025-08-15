@@ -55,8 +55,10 @@ Examples:
     clean_parser = subparsers.add_parser('clean', help='Clean directories using freight-clean.sh')
     clean_parser.add_argument('migration_root', nargs='?', default=None,
                             help='Migration root directory to clean (default: from global config)')
+    clean_parser.add_argument('--confirm', action='store_true',
+                            help='Actually perform cleaning (default is dry-run)')
     clean_parser.add_argument('script_args', nargs='*',
-                            help='Arguments to pass to freight-clean.sh (e.g. --confirm)')
+                            help='Additional arguments to pass to freight-clean.sh')
     
     # Shared command
     shared_parser = subparsers.add_parser('shared', help='Analyze shared directories across subdirectories')
@@ -135,7 +137,12 @@ Examples:
                 print(f"{Colors.YELLOW}Global configuration created at {orchestrator.config_manager.global_config_path}{Colors.END}")
                 print(f"Please edit the config file to customize cleaning settings before running clean operations.\n")
             
-            orchestrator.run_script('clean', extra_args=args.script_args)
+            # Build script arguments
+            script_args = list(args.script_args) if args.script_args else []
+            if args.confirm:
+                script_args.append('--confirm')
+            
+            orchestrator.run_script('clean', extra_args=script_args)
             
         elif args.command == 'shared':
             # Show shared directories analysis
