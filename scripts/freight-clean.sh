@@ -17,18 +17,19 @@ source "$SCRIPT_DIR/freight-lib/json-utils.sh"
 
 usage() {
     cat << EOF
-Usage: $SCRIPT_NAME [migration_root] [--dry-run]
+Usage: $SCRIPT_NAME [migration_root] [--confirm]
 
 Deletes configured directories from immediate subdirectory roots.
 If no migration_root is provided, uses the root from global config.
+By default, runs in dry-run mode to show what would be cleaned.
 
 Options:
-    --dry-run    Show what would be cleaned without deleting
+    --confirm    Actually perform the cleaning (default is dry-run)
 
 Examples:
-    $SCRIPT_NAME --dry-run        # Uses global config, dry run
-    $SCRIPT_NAME                  # Uses global config, real run
-    $SCRIPT_NAME /nfs1/students   # Uses explicit migration root
+    $SCRIPT_NAME                  # Uses global config, dry run (default)
+    $SCRIPT_NAME --confirm        # Uses global config, real run
+    $SCRIPT_NAME /nfs1/students --confirm   # Uses explicit migration root, real run
 EOF
 }
 
@@ -122,12 +123,12 @@ clean_directory() {
 
 main() {
     local migration_root=""
-    local dry_run="false"
+    local dry_run="true"  # Default to dry run
     
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --dry-run) dry_run="true"; shift ;;
+            --confirm) dry_run="false"; shift ;;
             --help|-h) usage; exit 0 ;;
             -*) log_error "Unknown option: $1"; exit 1 ;;
             *) migration_root="$1"; shift ;;
@@ -148,7 +149,11 @@ main() {
     migration_root=$(realpath "$migration_root")
     
     log_info "Starting clean of: $migration_root"
-    [ "$dry_run" = "true" ] && log_warning "DRY RUN MODE - No files will be deleted"
+    if [ "$dry_run" = "true" ]; then
+        log_warning "DRY RUN MODE - No files will be deleted (use --confirm to actually clean)"
+    else
+        log_warning "CLEANING MODE - Files will be permanently deleted"
+    fi
     
     # Load directory names and get subdirectories
     local dir_names=()

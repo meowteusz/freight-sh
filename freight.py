@@ -343,65 +343,37 @@ class FreightOrchestrator:
         print(f"  1. Edit {Colors.CYAN}{self.global_config_path}{Colors.END} to customize settings")
         print(f"  2. Run {Colors.YELLOW}freight.py scan{Colors.END} to scan directories")
     
-    def run_clean(self, dry_run: bool = False) -> None:
-        """Run the freight-clean.sh script"""
-        if not self.migration_root.exists():
-            raise FileNotFoundError(f"Migration root not found: {self.migration_root}")
+    def run_script(self, script_name: str, extra_args: Optional[List[str]] = None) -> None:
+        """Run a freight script with passthrough arguments"""
+        # Path to the script
+        script_path = self.script_dir / 'scripts' / f'freight-{script_name}.sh'
         
-        # Path to the freight-clean.sh script
-        clean_script = self.script_dir / 'scripts' / 'freight-clean.sh'
+        if not script_path.exists():
+            raise FileNotFoundError(f"Script not found: {script_path}")
         
-        if not clean_script.exists():
-            raise FileNotFoundError(f"Clean script not found: {clean_script}")
+        # Build command arguments - just pass everything through
+        cmd = [str(script_path)]
+        if self.migration_root:
+            cmd.append(str(self.migration_root))
+        if extra_args:
+            cmd.extend(extra_args)
         
-        # Build command arguments
-        cmd = [str(clean_script), str(self.migration_root)]
-        if dry_run:
-            cmd.append('--dry-run')
-        
-        print(f"\n{Colors.BOLD}{Colors.CYAN}Running Freight Clean{Colors.END}")
-        print(f"Root: {Colors.WHITE}{self.migration_root}{Colors.END}")
-        if dry_run:
-            print(f"Mode: {Colors.YELLOW}DRY RUN{Colors.END}")
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Running Freight {script_name.title()}{Colors.END}")
         
         try:
-            # Run the clean script
+            # Run the script
             result = subprocess.run(cmd, check=True)
-            print(f"\n{Colors.GREEN}Clean completed successfully!{Colors.END}")
+            print(f"\n{Colors.GREEN}{script_name.title()} completed successfully!{Colors.END}")
         except subprocess.CalledProcessError as e:
-            print(f"\n{Colors.RED}Clean failed with exit code {e.returncode}{Colors.END}")
+            print(f"\n{Colors.RED}{script_name.title()} failed with exit code {e.returncode}{Colors.END}")
             raise
         except FileNotFoundError:
-            print(f"{Colors.RED}Error: freight-clean.sh script not found{Colors.END}")
+            print(f"{Colors.RED}Error: freight-{script_name}.sh script not found{Colors.END}")
             raise
     
-    def run_scan(self) -> None:
+    def run_scan(self, extra_args: Optional[List[str]] = None) -> None:
         """Run the freight-scan.sh script"""
-        if not self.migration_root.exists():
-            raise FileNotFoundError(f"Migration root not found: {self.migration_root}")
-        
-        # Path to the freight-scan.sh script
-        scan_script = self.script_dir / 'scripts' / 'freight-scan.sh'
-        
-        if not scan_script.exists():
-            raise FileNotFoundError(f"Scan script not found: {scan_script}")
-        
-        # Build command arguments
-        cmd = [str(scan_script), str(self.migration_root)]
-        
-        print(f"\n{Colors.BOLD}{Colors.CYAN}Running Freight Scan{Colors.END}")
-        print(f"Root: {Colors.WHITE}{self.migration_root}{Colors.END}")
-        
-        try:
-            # Run the scan script
-            result = subprocess.run(cmd, check=True)
-            print(f"\n{Colors.GREEN}Scan completed successfully!{Colors.END}")
-        except subprocess.CalledProcessError as e:
-            print(f"\n{Colors.RED}Scan failed with exit code {e.returncode}{Colors.END}")
-            raise
-        except FileNotFoundError:
-            print(f"{Colors.RED}Error: freight-scan.sh script not found{Colors.END}")
-            raise
+        self.run_script('scan', extra_args=extra_args)
 
     def analyze_shared_directories(self) -> Dict[str, int]:
         """Analyze shared directories across all subdirectories"""
@@ -522,8 +494,9 @@ Examples:
   freight.py scan /nfs1/students     # Run freight-scan.sh on specific migration root
   freight.py overview                # Show scan overview for current directory
   freight.py overview /nfs1/students # Show scan overview for migration root
-  freight.py clean --dry-run         # Show what would be cleaned (dry run)
-  freight.py clean                   # Clean directories using global config
+  freight.py clean                   # Run clean in dry-run mode (default)
+  freight.py clean --confirm         # Run clean with confirmation (actual cleaning)
+  freight.py clean /path/to/root --confirm  # Clean specific root with confirmation
   freight.py clean /nfs1/students    # Clean specific migration root
   freight.py shared                  # Analyze shared directories using global config
   freight.py shared /nfs1/students   # Analyze shared directories for specific root
@@ -542,18 +515,20 @@ Examples:
     scan_parser = subparsers.add_parser('scan', help='Run freight-scan.sh to scan directories')
     scan_parser.add_argument('migration_root', nargs='?', default=None,
                            help='Migration root directory to scan (default: from global config)')
+    scan_parser.add_argument('script_args', nargs='*',
+                           help='Arguments to pass to freight-scan.sh')
     
     # Overview command (shows results)
     overview_parser = subparsers.add_parser('overview', help='Show scan overview of migration root')
     overview_parser.add_argument('migration_root', nargs='?', default=None,
                                help='Migration root directory to analyze (default: from global config)')
     
-    # Clean command
+    # Clean command - pass all unknown arguments to script
     clean_parser = subparsers.add_parser('clean', help='Clean directories using freight-clean.sh')
     clean_parser.add_argument('migration_root', nargs='?', default=None,
                             help='Migration root directory to clean (default: from global config)')
-    clean_parser.add_argument('--dry-run', action='store_true',
-                            help='Show what would be cleaned without deleting files')
+    clean_parser.add_argument('script_args', nargs='*',
+                            help='Arguments to pass to freight-clean.sh (e.g. --confirm)')
     
     # Shared command
     shared_parser = subparsers.add_parser('shared', help='Analyze shared directories across subdirectories')
@@ -593,7 +568,7 @@ Examples:
                 print(f"{Colors.YELLOW}Global configuration created at {orchestrator.global_config_path}{Colors.END}")
                 print(f"Please edit the config file to customize scanning settings before running scan operations.\n")
             
-            orchestrator.run_scan()
+            orchestrator.run_scan(extra_args=args.script_args)
             
         elif args.command == 'overview':
             # Show scan overview
@@ -632,7 +607,7 @@ Examples:
                 print(f"{Colors.YELLOW}Global configuration created at {orchestrator.global_config_path}{Colors.END}")
                 print(f"Please edit the config file to customize cleaning settings before running clean operations.\n")
             
-            orchestrator.run_clean(dry_run=args.dry_run)
+            orchestrator.run_script('clean', extra_args=args.script_args)
             
         elif args.command == 'shared':
             # Show shared directories analysis
