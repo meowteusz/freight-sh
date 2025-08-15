@@ -45,15 +45,15 @@ get_clean_directories() {
     fi
     
     local dir_names
-    if ! dir_names=$(jq -r '.cleaning.target_directories[]?' "$config_file" 2>/dev/null); then
+    if ! dir_names=$(jq -r '.clean.target_directories[]?' "$config_file" 2>/dev/null); then
         log_error "Failed to read directory names from global config file"
-        log_info "Please ensure global config.json has a valid cleaning.target_directories array"
+        log_info "Please ensure global config.json has a valid clean.target_directories array"
         return 1
     fi
     
     if [ -z "$dir_names" ]; then
         log_error "No directory names found in global configuration"
-        log_info "Please configure cleaning.target_directories in global config.json"
+        log_info "Please configure clean.target_directories in global config.json"
         return 1
     fi
     
