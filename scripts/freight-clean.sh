@@ -218,8 +218,8 @@ main() {
     
     finish_progress
     
-    # Update global config
-    update_global_config "clean" "total_cleaned_bytes=$total_cleaned" "clean_was_dry_run=$dry_run"
+    # Update global config with only necessary fields if needed
+    # update_global_config "total_cleaned_bytes=$total_cleaned" "clean_was_dry_run=$dry_run"
     
     local action="cleaned"
     [ "$dry_run" = "true" ] && action="would clean"

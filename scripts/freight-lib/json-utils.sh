@@ -53,21 +53,16 @@ get_global_config() {
     echo "$script_dir/config.json"
 }
 
-# Update global config with completion status  
-# Usage: update_global_config "operation" "key1=value1" "key2=value2" ...
+# Update global config with custom key-value pairs
+# Usage: update_global_config "key1=value1" "key2=value2" ...
 update_global_config() {
-    local operation="$1"
-    shift 1
-    
     local config_file
     config_file=$(get_global_config)
-    local completion_time
-    completion_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     
-    # Build jq update command
-    local jq_cmd=". | .${operation}_completed = true | .last_${operation}_time = \"$completion_time\""
+    # Build jq update command starting with identity
+    local jq_cmd="."
     
-    # Add custom updates from remaining arguments
+    # Add custom updates from arguments
     for update in "$@"; do
         if [[ "$update" == *"="* ]]; then
             local key="${update%%=*}"
