@@ -33,11 +33,12 @@ class Colors:
 class ScanResult:
     """Represents the scan result for a single directory"""
     
-    def __init__(self, directory: str, has_scan: bool = False, scan_data: Optional[Dict] = None):
+    def __init__(self, directory: str, has_scan: bool = False, scan_data: Optional[Dict] = None, clean_data: Optional[Dict] = None):
         self.directory = directory
         self.name = os.path.basename(directory)
         self.has_scan = has_scan
         self.scan_data = scan_data or {}
+        self.clean_data = clean_data or {}
     
     @property
     def status_icon(self) -> str:
@@ -72,6 +73,16 @@ class ScanResult:
                 return None
         return None
     
+    @property
+    def bytes_cleaned(self) -> int:
+        """Returns bytes that would be cleaned"""
+        return self.clean_data.get('bytes_cleaned', 0)
+    
+    @property
+    def has_clean_data(self) -> bool:
+        """Returns whether clean data is available"""
+        return bool(self.clean_data)
+    
     def format_size(self) -> str:
         """Format bytes to human readable format"""
         if not self.has_scan:
@@ -105,7 +116,7 @@ class FreightOrchestrator:
         self.check_config_version()
     
     def scan_directories(self) -> None:
-        """Scan all subdirectories for .freight/scan.json files"""
+        """Scan all subdirectories for .freight/scan.json and clean.json files"""
         if not self.migration_root.exists():
             raise FileNotFoundError(f"Directory not found: {self.migration_root}")
         
@@ -117,18 +128,29 @@ class FreightOrchestrator:
         
         for subdir in sorted(subdirs):
             scan_file = subdir / '.freight' / 'scan.json'
+            clean_file = subdir / '.freight' / 'clean.json'
             
+            # Load scan data
+            scan_data = None
+            has_scan = False
             if scan_file.exists():
                 try:
                     with open(scan_file, 'r') as f:
                         scan_data = json.load(f)
-                    result = ScanResult(str(subdir), True, scan_data)
+                    has_scan = True
                 except (json.JSONDecodeError, IOError) as e:
                     print(f"Warning: Could not parse {scan_file}: {e}", file=sys.stderr)
-                    result = ScanResult(str(subdir), False)
-            else:
-                result = ScanResult(str(subdir), False)
             
+            # Load clean data
+            clean_data = None
+            if clean_file.exists():
+                try:
+                    with open(clean_file, 'r') as f:
+                        clean_data = json.load(f)
+                except (json.JSONDecodeError, IOError) as e:
+                    print(f"Warning: Could not parse {clean_file}: {e}", file=sys.stderr)
+            
+            result = ScanResult(str(subdir), has_scan, scan_data, clean_data)
             self.scan_results.append(result)
     
     def get_statistics(self) -> Dict[str, Any]:
@@ -137,6 +159,7 @@ class FreightOrchestrator:
         scanned_dirs = sum(1 for r in self.scan_results if r.has_scan)
         total_size = sum(r.size_bytes for r in self.scan_results if r.has_scan)
         total_files = sum(r.file_count for r in self.scan_results if r.has_scan)
+        total_cleanable = sum(r.bytes_cleaned for r in self.scan_results if r.has_clean_data)
         
         completion_rate = (scanned_dirs / total_dirs * 100) if total_dirs > 0 else 0
         
@@ -146,7 +169,8 @@ class FreightOrchestrator:
             'unscanned_directories': total_dirs - scanned_dirs,
             'completion_rate': completion_rate,
             'total_size_bytes': total_size,
-            'total_files': total_files
+            'total_files': total_files,
+            'total_cleanable_bytes': total_cleanable
         }
     
     def format_size(self, size_bytes: int) -> str:
@@ -243,7 +267,7 @@ class FreightOrchestrator:
             pass
     
     def display_overview(self) -> None:
-        """Display the grid-like overview of scan status"""
+        """Display the overview of scan status with block format for directories"""
         stats = self.get_statistics()
         
         # Update config.json with calculated stats
@@ -261,6 +285,10 @@ class FreightOrchestrator:
         if stats['scanned_directories'] > 0:
             print(f"  Total size: {Colors.WHITE}{self.format_size(stats['total_size_bytes'])}{Colors.END}")
             print(f"  Total files: {Colors.WHITE}{stats['total_files']:,}{Colors.END}")
+            
+        # Add cleaning savings if any directories have clean data
+        if stats['total_cleanable_bytes'] > 0:
+            print(f"  Potential cleaning savings: {Colors.YELLOW}{self.format_size(stats['total_cleanable_bytes'])}{Colors.END}")
 
         # Top three largest directories
         scanned_results = [r for r in self.scan_results if r.has_scan and r.size_bytes > 0]
@@ -274,22 +302,37 @@ class FreightOrchestrator:
                 medal = medals[i] if i < len(medals) else " "
                 print(f"  {medal} {result.name}: {Colors.WHITE}{result.format_size()}{Colors.END}")
         
-        # Grid header
+        # Directory status blocks
         print(f"\n{Colors.BOLD}Directory Status:{Colors.END}")
-        print(f"{'Directory':<25} {'Status':<8} {'Size':<10} {'Files':<10} {'Scan Time':<12} {'Dir MTime'}")
-        print('-' * 85)
+        print(f"{Colors.CYAN}{'=' * 60}{Colors.END}")
         
-        # Grid rows
         for result in self.scan_results:
-            status = result.status_icon
-            size = result.format_size()
-            files = f"{result.file_count:,}" if result.has_scan else "---"
-            scan_time = result.scan_time[:10] if result.scan_time else "---"  # Just date part
-            dir_mtime = result.directory_mtime if result.directory_mtime else "---"
-            
-            print(f"{result.name:<25} {status:<8} {size:<10} {files:<10} {scan_time:<12} {dir_mtime}")
+            self._display_directory_block(result)
         
-        print(f"\n{Colors.CYAN}{'=' * 85}{Colors.END}")
+        print(f"{Colors.CYAN}{'=' * 60}{Colors.END}")
+    
+    def _display_directory_block(self, result: ScanResult) -> None:
+        """Display a single directory as a block with stats"""
+        # Directory name with status icon
+        print(f"\n{Colors.BOLD}{result.name}{Colors.END} {result.status_icon}")
+        
+        if result.has_scan:
+            # Basic scan stats
+            print(f"  Size: {Colors.WHITE}{result.format_size()}{Colors.END}")
+            print(f"  Files: {Colors.WHITE}{result.file_count:,}{Colors.END}")
+            if result.scan_time:
+                scan_date = result.scan_time[:10]  # Just date part
+                print(f"  Scanned: {Colors.CYAN}{scan_date}{Colors.END}")
+            if result.directory_mtime:
+                print(f"  Modified: {Colors.CYAN}{result.directory_mtime}{Colors.END}")
+            
+            # Clean data if available and has savings
+            if result.has_clean_data and result.bytes_cleaned > 0:
+                print(f"  Storage cost: {Colors.YELLOW}{self.format_size(result.bytes_cleaned)}{Colors.END}")
+        else:
+            print(f"  {Colors.RED}Not scanned{Colors.END}")
+        
+        print()
     
     def init_freight_root(self, root_path: Optional[str] = None) -> None:
         """Initialize a freight root directory with global config"""
