@@ -67,6 +67,11 @@ Examples:
     shared_parser.add_argument('--threshold', type=int, default=None,
                              help='Minimum occurrences to show (overrides config setting)')
     
+    # Serve command
+    serve_parser = subparsers.add_parser('serve', help='Start FastAPI web server')
+    serve_parser.add_argument('--host', default='0.0.0.0', help='Host to bind to (default: 0.0.0.0)')
+    serve_parser.add_argument('--port', type=int, default=8000, help='Port to bind to (default: 8000)')
+    
     # Parse arguments
     args = parser.parse_args()
     
@@ -168,6 +173,37 @@ Examples:
                 orchestrator.get_shared_directory_threshold = lambda: args.threshold
             
             orchestrator.display_shared_directories()
+            
+        elif args.command == 'serve':
+            # Start FastAPI server
+            import subprocess
+            import os
+            
+            # Path to freight-api.py script
+            api_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'freight-api.py')
+            
+            if not os.path.exists(api_script):
+                print(f"{Colors.RED}Error:{Colors.END} freight-api.py not found at {api_script}")
+                sys.exit(1)
+            
+            print(f"{Colors.BOLD}{Colors.CYAN}Starting Freight API Server{Colors.END}")
+            print(f"Server will run on {Colors.WHITE}http://{args.host}:{args.port}{Colors.END}")
+            print(f"Press {Colors.YELLOW}Ctrl+C{Colors.END} to stop\n")
+            
+            try:
+                # Run the API script with UV, passing host/port as environment variables
+                env = os.environ.copy()
+                env['FREIGHT_API_HOST'] = args.host
+                env['FREIGHT_API_PORT'] = str(args.port)
+                
+                subprocess.run(['uv', 'run', api_script], env=env, check=True)
+            except subprocess.CalledProcessError as e:
+                print(f"{Colors.RED}Failed to start API server{Colors.END}")
+                sys.exit(1)
+            except FileNotFoundError:
+                print(f"{Colors.RED}Error: UV not found. Please install UV first.{Colors.END}")
+                print("Install with: curl -LsSf https://astral.sh/uv/install.sh | sh")
+                sys.exit(1)
             
     except (FileNotFoundError, NotADirectoryError) as e:
         print(f"Error: {e}", file=sys.stderr)

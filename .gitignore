@@ -10,3 +10,4 @@ __pycache__/
 # Documentation files
 ARCHITECTURE_SIMPLE.md
 AGENTS.md
+freight-api-env/

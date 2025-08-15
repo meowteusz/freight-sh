@@ -1,8 +1,22 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+
+# /// script
+# requires-python = ">=3.8"
+# dependencies = [
+#     "fastapi>=0.100.0",
+#     "uvicorn>=0.20.0",
+# ]
+# ///
 
 """
 Freight API - FastAPI wrapper for Freight NFS Migration Suite
 Minimal web API that serves overview data as JSON
+
+Usage:
+    ./freight-api.py                    # Start server on http://0.0.0.0:8000
+    uv run freight-api.py              # Alternative way to run
+    
+Dependencies are managed automatically via UV inline script metadata.
 """
 
 import os
@@ -66,4 +80,9 @@ async def get_overview(migration_root: Optional[str] = None):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import os
+    
+    host = os.getenv('FREIGHT_API_HOST', '0.0.0.0')
+    port = int(os.getenv('FREIGHT_API_PORT', '8000'))
+    
+    uvicorn.run(app, host=host, port=port)
