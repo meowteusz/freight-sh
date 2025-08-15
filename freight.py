@@ -186,6 +186,10 @@ class FreightOrchestrator:
                 "verbose": False,
                 "parallel_jobs": 4,
                 "shared_directory_threshold": 2,
+                "shared_directory_ignore": [
+                    ".freight",
+                    ".ssh"
+                ],
                 "exclude_patterns": [
                     ".git",
                     ".svn", 
@@ -392,6 +396,7 @@ class FreightOrchestrator:
             raise FileNotFoundError(f"Migration root not found: {self.migration_root}")
         
         directory_counts = {}
+        ignore_list = self.get_shared_directory_ignore_list()
         
         # Find all immediate subdirectories, excluding .freight
         subdirs = [d for d in self.migration_root.iterdir() if d.is_dir() and d.name != '.freight']
@@ -401,9 +406,10 @@ class FreightOrchestrator:
                 # Get immediate child directories only (not recursive)
                 child_dirs = [d.name for d in subdir.iterdir() if d.is_dir()]
                 
-                # Count each directory name
+                # Count each directory name, excluding ignored directories
                 for dir_name in child_dirs:
-                    directory_counts[dir_name] = directory_counts.get(dir_name, 0) + 1
+                    if dir_name not in ignore_list:
+                        directory_counts[dir_name] = directory_counts.get(dir_name, 0) + 1
                     
             except (PermissionError, OSError) as e:
                 print(f"Warning: Could not access {subdir}: {e}", file=sys.stderr)
@@ -423,11 +429,29 @@ class FreightOrchestrator:
         except (json.JSONDecodeError, IOError):
             return 2  # Default threshold
     
+    def get_shared_directory_ignore_list(self) -> List[str]:
+        """Get shared directory ignore list from config"""
+        default_ignore = [".freight", ".ssh"]
+        
+        if not self.global_config_path.exists():
+            return default_ignore
+        
+        try:
+            with open(self.global_config_path, 'r') as f:
+                config = json.load(f)
+            return config.get('settings', {}).get('shared_directory_ignore', default_ignore)
+        except (json.JSONDecodeError, IOError):
+            return default_ignore
+    
     def display_shared_directories(self) -> None:
         """Display shared directories analysis"""
         print(f"\n{Colors.BOLD}{Colors.CYAN}Freight Shared Directory Analysis{Colors.END}")
         print(f"{Colors.CYAN}{'=' * 60}{Colors.END}")
         print(f"Root: {Colors.WHITE}{self.migration_root}{Colors.END}")
+        
+        ignore_list = self.get_shared_directory_ignore_list()
+        if ignore_list:
+            print(f"Ignoring: {Colors.YELLOW}{', '.join(ignore_list)}{Colors.END}")
         
         directory_counts = self.analyze_shared_directories()
         threshold = self.get_shared_directory_threshold()
