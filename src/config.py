@@ -39,9 +39,7 @@ class ConfigManager:
             "migration_root": migration_root,
             "dest_path": dest_path,
             "created_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "global": {
-                "parallel_jobs": 4
-            },
+
             "scan": {
                 "last_scan_time": None,
                 "total_directories": 0,
@@ -59,7 +57,7 @@ class ConfigManager:
             "migrate": {
                 "last_migrate_time": None,
                 "rsync_flags": "-avxHAX --numeric-ids --compress --partial --progress",
-                "small_dir_parallel_limit": 5,
+
                 "large_dir_threshold_bytes": 3221225472
             }
         }
