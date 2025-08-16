@@ -52,8 +52,8 @@ parse_rsync_stats() {
         bytes_transferred=$(echo "$rsync_output" | grep "Total transferred file size:" | awk '{print $5}' | tr -d ',')
     fi
     
-    if echo "$rsync_output" | grep -q "Number of files transferred:"; then
-        files_transferred=$(echo "$rsync_output" | grep "Number of files transferred:" | awk '{print $5}' | tr -d ',')
+    if echo "$rsync_output" | grep -q "Number of regular files transferred:"; then
+        files_transferred=$(echo "$rsync_output" | grep "Number of regular files transferred:" | awk '{print $6}' | tr -d ',')
     fi
     
     echo "$bytes_transferred $files_transferred"
