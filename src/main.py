@@ -26,6 +26,9 @@ Examples:
   freight.py clean --confirm         # Run clean with confirmation (actual cleaning)
   freight.py clean /path/to/root --confirm  # Clean specific root with confirmation
   freight.py clean /nfs1/students    # Clean specific migration root
+  freight.py migrate                 # Show migration plan only (dry-run, default)
+  freight.py migrate --confirm       # Show migration plan and execute with confirmation
+  freight.py migrate /nfs1/students --confirm  # Migrate specific root with confirmation
   freight.py shared                  # Analyze shared directories using global config
   freight.py shared /nfs1/students   # Analyze shared directories for specific root
   freight.py shared --threshold 3    # Show directories appearing 3+ times
@@ -59,6 +62,13 @@ Examples:
                             help='Actually perform cleaning (default is dry-run)')
     clean_parser.add_argument('script_args', nargs='*',
                             help='Additional arguments to pass to freight-clean.sh')
+    
+    # Migrate command
+    migrate_parser = subparsers.add_parser('migrate', help='Execute migration of directories')
+    migrate_parser.add_argument('migration_root', nargs='?', default=None,
+                               help='Migration root directory to migrate (default: from global config)')
+    migrate_parser.add_argument('--confirm', action='store_true',
+                               help='Actually perform migration (default is dry-run)')
     
     # Shared command
     shared_parser = subparsers.add_parser('shared', help='Analyze shared directories across subdirectories')
@@ -148,6 +158,25 @@ Examples:
                 script_args.append('--confirm')
             
             orchestrator.run_script('clean', extra_args=script_args)
+            
+        elif args.command == 'migrate':
+            # Execute migration
+            try:
+                orchestrator = FreightOrchestrator(args.migration_root)
+            except ValueError as e:
+                if "No migration root specified" in str(e):
+                    print(f"{Colors.RED}Error:{Colors.END} No migration root found in global config.")
+                    print(f"Please run {Colors.YELLOW}freight.py init{Colors.END} first or specify a migration root explicitly.")
+                    sys.exit(1)
+                raise
+            
+            # Ensure global config exists
+            config_created = orchestrator.ensure_global_config(str(orchestrator.migration_root))
+            if config_created:
+                print(f"{Colors.YELLOW}Global configuration created at {orchestrator.config_manager.global_config_path}{Colors.END}")
+                print(f"Please edit the config file to customize migration settings before running migration operations.\n")
+            
+            orchestrator.run_migration(args.confirm)
             
         elif args.command == 'shared':
             # Show shared directories analysis

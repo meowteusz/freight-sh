@@ -359,3 +359,131 @@ class FreightOrchestrator:
     def get_shared_directory_ignore_list(self) -> List[str]:
         """Get shared directory ignore list from config"""
         return self.config_manager.get_shared_directory_ignore_list()
+    
+    def run_migration(self, confirmed: bool = False) -> None:
+        """Execute migration of all directories smallest to largest (dry-run by default)"""
+        # Check dependencies for migration
+        self.check_dependencies(['rsync', 'jq', 'realpath'])
+        
+        # Load scan data to plan migration
+        self.scan_directories()
+        
+        # Check if we have scan data
+        scanned_dirs = [r for r in self.scan_results if r.has_scan]
+        if not scanned_dirs:
+            print(f"{Colors.RED}Error:{Colors.END} No scan data found.")
+            print(f"Please run {Colors.YELLOW}freight.py scan{Colors.END} first to generate scan data.")
+            return
+        
+        # Get destination path from config
+        dest_path = self.config_manager.get_destination_path()
+        if not dest_path:
+            print(f"{Colors.RED}Error:{Colors.END} No destination path configured.")
+            print(f"Please edit {Colors.CYAN}{self.config_manager.global_config_path}{Colors.END} and set the 'dest_path' field.")
+            return
+        
+        # Sort directories by size (smallest first)
+        sorted_dirs = sorted(scanned_dirs, key=lambda r: r.size_bytes)
+        
+        # Display migration plan
+        self._display_migration_plan(sorted_dirs, dest_path)
+        
+        # Exit early if this is a dry run (default behavior)
+        if not confirmed:
+            print(f"\n{Colors.YELLOW}🔍 Dry run completed - no migration executed{Colors.END}")
+            print(f"To actually perform migration, run: {Colors.WHITE}freight.py migrate --confirm{Colors.END}")
+            return
+        
+        # Double confirmation for actual migration
+        confirm = input(f"\n{Colors.YELLOW}Proceed with migration? (y/N):{Colors.END} ").strip().lower()
+        if confirm not in ['y', 'yes']:
+            print("Migration cancelled.")
+            return
+        
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Starting Migration{Colors.END}")
+        print(f"{Colors.CYAN}{'=' * 60}{Colors.END}")
+        
+        # Execute migration for each directory
+        total_dirs = len(sorted_dirs)
+        successful_migrations = 0
+        failed_migrations = 0
+        failed_dirs = []
+        
+        # Path to freight-migrate.sh script
+        migrate_script = self.script_dir / 'scripts' / 'freight-migrate.sh'
+        if not migrate_script.exists():
+            raise FileNotFoundError(f"freight-migrate.sh not found: {migrate_script}")
+        
+        for i, scan_result in enumerate(sorted_dirs, 1):
+            source_dir = Path(scan_result.directory)
+            dest_dir = Path(dest_path) / source_dir.name
+            
+            print(f"\n[{i:3d}/{total_dirs}] Migrating {source_dir.name}...")
+            print(f"  Size: {scan_result.format_size()}")
+            print(f"  Files: {scan_result.file_count:,}")
+            print(f"  Source: {source_dir}")
+            print(f"  Destination: {dest_dir}")
+            
+            try:
+                # Run freight-migrate.sh on this directory
+                result = subprocess.run(
+                    [str(migrate_script), str(source_dir), str(dest_dir), str(self.migration_root)],
+                    check=True
+                )
+                print(f"  {Colors.GREEN}✓ Migration completed{Colors.END}")
+                successful_migrations += 1
+                
+            except subprocess.CalledProcessError as e:
+                print(f"  {Colors.RED}✗ Migration failed{Colors.END}")
+                failed_migrations += 1
+                failed_dirs.append(source_dir.name)
+                # Continue with other directories instead of stopping
+                continue
+        
+        # Display final summary
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Migration Summary{Colors.END}")
+        print(f"{Colors.CYAN}{'=' * 60}{Colors.END}")
+        print(f"Total directories: {total_dirs}")
+        print(f"Successful migrations: {Colors.GREEN}{successful_migrations}{Colors.END}")
+        print(f"Failed migrations: {Colors.RED}{failed_migrations}{Colors.END}")
+        
+        if failed_dirs:
+            print(f"\nFailed directories:")
+            for failed_dir in failed_dirs:
+                print(f"  • {failed_dir}")
+            print(f"\nYou can retry failed migrations by running {Colors.YELLOW}freight.py migrate{Colors.END} again.")
+        
+        if successful_migrations == total_dirs:
+            print(f"\n{Colors.GREEN}🎉 All migrations completed successfully!{Colors.END}")
+        elif successful_migrations > 0:
+            print(f"\n{Colors.YELLOW}⚠️  Partial migration completed. Check failed directories above.{Colors.END}")
+        else:
+            print(f"\n{Colors.RED}❌ No migrations completed successfully.{Colors.END}")
+    
+    def _display_migration_plan(self, sorted_dirs: List[ScanResult], dest_path: str) -> None:
+        """Display the migration plan"""
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Migration Plan{Colors.END}")
+        print(f"{Colors.CYAN}{'=' * 60}{Colors.END}")
+        print(f"Source: {Colors.WHITE}{self.migration_root}{Colors.END}")
+        print(f"Destination: {Colors.WHITE}{dest_path}{Colors.END}")
+        print(f"Directories to migrate: {Colors.WHITE}{len(sorted_dirs)}{Colors.END}")
+        
+        total_size = sum(r.size_bytes for r in sorted_dirs)
+        total_files = sum(r.file_count for r in sorted_dirs)
+        
+        print(f"Total size: {Colors.WHITE}{self._format_bytes(total_size)}{Colors.END}")
+        print(f"Total files: {Colors.WHITE}{total_files:,}{Colors.END}")
+        
+        print(f"\n{Colors.BOLD}Migration Order (smallest to largest):{Colors.END}")
+        for i, scan_result in enumerate(sorted_dirs, 1):
+            source_name = Path(scan_result.directory).name
+            print(f"  {i:3d}. {source_name:30s} {scan_result.format_size():>10s} ({scan_result.file_count:,} files)")
+    
+    def _format_bytes(self, size_bytes: int) -> str:
+        """Format bytes as human readable string"""
+        size = float(size_bytes)
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size < 1024.0:
+                return f"{size:.1f} {unit}"
+            size /= 1024.0
+        return f"{size:.1f} PB"

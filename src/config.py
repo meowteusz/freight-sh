@@ -29,7 +29,7 @@ class ConfigManager:
         except (json.JSONDecodeError, IOError):
             return None
     
-    def ensure_global_config(self, migration_root: str) -> bool:
+    def ensure_global_config(self, migration_root: str, dest_path: Optional[str] = None) -> bool:
         """Ensure global config exists and is properly set up. Returns True if config was created."""
         if self.global_config_path.exists():
             return False
@@ -37,6 +37,7 @@ class ConfigManager:
         config_skeleton = {
             "config_version": FREIGHT_VERSION,
             "migration_root": migration_root,
+            "dest_path": dest_path,
             "created_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "global": {
                 "parallel_jobs": 4
@@ -56,7 +57,10 @@ class ConfigManager:
                 ]
             },
             "migrate": {
-                "last_migrate_time": None
+                "last_migrate_time": None,
+                "rsync_flags": "-avxHAX --numeric-ids --compress --partial --progress",
+                "small_dir_parallel_limit": 5,
+                "large_dir_threshold_bytes": 3221225472
             }
         }
         
@@ -127,6 +131,18 @@ class ConfigManager:
         except (json.JSONDecodeError, IOError):
             return default_ignore
     
+    def get_destination_path(self) -> Optional[str]:
+        """Get destination path from global config"""
+        if not self.global_config_path.exists():
+            return None
+        
+        try:
+            with open(self.global_config_path, 'r') as f:
+                config = json.load(f)
+            return config.get('dest_path')
+        except (json.JSONDecodeError, IOError):
+            return None
+    
     def init_freight_root(self, root_path: Optional[str] = None) -> None:
         """Initialize a freight root directory with global config"""
         import os
@@ -147,11 +163,30 @@ class ConfigManager:
             print(f"    {Colors.YELLOW}freight.py init{Colors.END}")
             sys.exit(1)
         
-        # Create/update global config
-        config_created = self.ensure_global_config(str(root_dir))
+        # Prompt for destination path
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Initializing Freight Migration{Colors.END}")
+        print(f"Source directory: {Colors.WHITE}{root_dir}{Colors.END}")
+        
+        while True:
+            dest_path = input(f"\n{Colors.YELLOW}Enter destination path for migration:{Colors.END} ").strip()
+            if dest_path:
+                dest_path = Path(dest_path).resolve()
+                print(f"Destination directory: {Colors.WHITE}{dest_path}{Colors.END}")
+                
+                confirm = input(f"\n{Colors.YELLOW}Confirm migration setup? (y/N):{Colors.END} ").strip().lower()
+                if confirm in ['y', 'yes']:
+                    break
+                elif confirm in ['n', 'no', '']:
+                    print("Setup cancelled.")
+                    sys.exit(0)
+            else:
+                print(f"{Colors.RED}Please enter a valid destination path.{Colors.END}")
+        
+        # Create/update global config with destination path
+        config_created = self.ensure_global_config(str(root_dir), str(dest_path))
         
         if config_created:
-            print(f"{Colors.GREEN}✓{Colors.END} Created global config: {self.global_config_path}")
+            print(f"\n{Colors.GREEN}✓{Colors.END} Created global config: {self.global_config_path}")
             print(f"\n{Colors.BOLD}{Colors.YELLOW}Global configuration created!{Colors.END}")
             print(f"Please edit {Colors.CYAN}{self.global_config_path}{Colors.END} to customize your migration settings.")
             print(f"Pay special attention to:")
@@ -164,14 +199,16 @@ class ConfigManager:
                 with open(self.global_config_path, 'r') as f:
                     config = json.load(f)
                 config['migration_root'] = str(root_dir)
+                config['dest_path'] = str(dest_path)
                 with open(self.global_config_path, 'w') as f:
                     json.dump(config, f, indent=2)
-                print(f"{Colors.GREEN}✓{Colors.END} Updated root directory in global config")
+                print(f"{Colors.GREEN}✓{Colors.END} Updated root and destination in global config")
             except (json.JSONDecodeError, IOError) as e:
                 print(f"{Colors.RED}✗{Colors.END} Failed to update global config: {e}")
         
         print(f"\n{Colors.BOLD}{Colors.CYAN}Freight root initialized successfully!{Colors.END}")
-        print(f"Root directory: {Colors.WHITE}{root_dir}{Colors.END}")
+        print(f"Source directory: {Colors.WHITE}{root_dir}{Colors.END}")
+        print(f"Destination directory: {Colors.WHITE}{dest_path}{Colors.END}")
         print(f"\nNext steps:")
         print(f"  1. Edit {Colors.CYAN}{self.global_config_path}{Colors.END} to customize settings")
         print(f"  2. Run {Colors.YELLOW}freight.py scan{Colors.END} to scan directories")
