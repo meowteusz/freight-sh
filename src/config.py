@@ -50,10 +50,7 @@ class ConfigManager:
                 "last_clean_time": None,
                 "target_directories": [],
                 "shared_directory_threshold": 2,
-                "shared_directory_ignore": [
-                    ".freight",
-                    ".ssh"
-                ]
+                "shared_directory_ignore": []
             },
             "migrate": {
                 "last_migrate_time": None,
@@ -77,7 +74,11 @@ class ConfigManager:
             with open(self.global_config_path, 'r') as f:
                 config = json.load(f)
             
-            config_version = config.get('config_version', config.get('freight_version', 'unknown'))
+            config_version = config.get('config_version') or config.get('freight_version')
+            if config_version is None:
+                print(f"{Colors.RED}Error:{Colors.END} Config file missing version information")
+                print(f"Please ensure {Colors.CYAN}{self.global_config_path}{Colors.END} contains config_version field")
+                return
             
             if config_version != FREIGHT_VERSION:
                 print(f"{Colors.YELLOW}⚠️  Version mismatch detected:{Colors.END}")
@@ -104,31 +105,56 @@ class ConfigManager:
         except (json.JSONDecodeError, IOError):
             pass
     
-    def get_shared_directory_threshold(self) -> int:
-        """Get shared directory threshold from config"""
+    def get_shared_directory_threshold(self) -> Optional[int]:
+        """Get shared directory threshold from config. Returns None if config is unreadable."""
         if not self.global_config_path.exists():
-            return 2  # Default threshold
+            return None
         
         try:
             with open(self.global_config_path, 'r') as f:
                 config = json.load(f)
-            return config.get('clean', {}).get('shared_directory_threshold', 2)
+            
+            clean_config = config.get('clean')
+            if clean_config is None:
+                return None
+            
+            threshold = clean_config.get('shared_directory_threshold')
+            return threshold if threshold is not None else None
         except (json.JSONDecodeError, IOError):
-            return 2  # Default threshold
+            return None
     
     def get_shared_directory_ignore_list(self) -> List[str]:
-        """Get shared directory ignore list from config"""
-        default_ignore = [".freight", ".ssh"]
+        """Get combined shared directory ignore list: implicit + additional from config."""
+        # These directories are always ignored (infrastructure/system directories)
+        implicit_ignores = [".freight", ".ssh"]
         
+        # Try to get additional ignores from config
+        additional_ignores = self._get_additional_shared_ignores()
+        if additional_ignores is None:
+            # Config unreadable - return just the implicit ignores so we can still function
+            return implicit_ignores
+        
+        # Combine implicit and additional ignores, removing duplicates
+        combined = list(set(implicit_ignores + additional_ignores))
+        return combined
+    
+    def _get_additional_shared_ignores(self) -> Optional[List[str]]:
+        """Get user-configured shared directory ignores from config. Returns None if config is unreadable."""
         if not self.global_config_path.exists():
-            return default_ignore
+            return None
         
         try:
             with open(self.global_config_path, 'r') as f:
                 config = json.load(f)
-            return config.get('clean', {}).get('shared_directory_ignore', default_ignore)
+            
+            clean_config = config.get('clean')
+            if clean_config is None:
+                return []  # Clean section missing, but that's ok - no user ignores
+            
+            user_ignores = clean_config.get('shared_directory_ignore')
+            return user_ignores if user_ignores is not None else []
         except (json.JSONDecodeError, IOError):
-            return default_ignore
+            return None
     
     def get_destination_path(self) -> Optional[str]:
         """Get destination path from global config"""
@@ -195,6 +221,8 @@ class ConfigManager:
             print(f"Pay special attention to:")
             print(f"  - clean.target_directories (directories to clean from subdirs)")
             print(f"  - clean.shared_directory_threshold (minimum occurrences for shared dirs)")
+            print(f"  - clean.shared_directory_ignore (additional dirs to ignore)")
+            print(f"    {Colors.CYAN}Note:{Colors.END} .freight and .ssh directories are always ignored automatically")
         else:
             print(f"{Colors.YELLOW}!{Colors.END} Global config already exists: {self.global_config_path}")
             # Update the root directory in existing config

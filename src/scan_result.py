@@ -27,13 +27,19 @@ class ScanResult:
     
     @property
     def size_bytes(self) -> int:
-        """Returns size in bytes"""
-        return self.scan_data.get('size_bytes', 0)
+        """Returns size in bytes, 0 if no scan data available"""
+        if not self.has_scan:
+            return 0
+        size = self.scan_data.get('size_bytes')
+        return size if size is not None else 0
     
     @property
     def file_count(self) -> int:
-        """Returns number of files"""
-        return self.scan_data.get('file_count', 0)
+        """Returns number of files, 0 if no scan data available"""
+        if not self.has_scan:
+            return 0
+        count = self.scan_data.get('file_count')
+        return count if count is not None else 0
     
     @property
     def scan_time(self) -> Optional[str]:
@@ -53,8 +59,11 @@ class ScanResult:
     
     @property
     def bytes_cleaned(self) -> int:
-        """Returns bytes that would be cleaned"""
-        return self.clean_data.get('bytes_cleaned', 0)
+        """Returns bytes that would be cleaned, 0 if no clean data available"""
+        if not self.has_clean_data:
+            return 0
+        cleaned = self.clean_data.get('bytes_cleaned')
+        return cleaned if cleaned is not None else 0
     
     @property
     def has_clean_data(self) -> bool:
@@ -64,7 +73,11 @@ class ScanResult:
     @property
     def problem_directories(self) -> List[Dict[str, Any]]:
         """Returns list of problem directories with their sizes"""
-        patterns = self.clean_data.get('patterns', [])
+        if not self.has_clean_data:
+            return []
+        patterns = self.clean_data.get('patterns')
+        if patterns is None:
+            return []
         return [p for p in patterns if p.get('bytes_saved', 0) > 0]
     
     def format_size(self) -> str:

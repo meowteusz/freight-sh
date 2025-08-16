@@ -315,11 +315,11 @@ class FreightOrchestrator:
 
     def analyze_shared_directories(self) -> Dict[str, int]:
         """Analyze shared directories across all subdirectories"""
-        if not self.migration_root.exists():
-            raise FileNotFoundError(f"Migration root not found: {self.migration_root}")
-        
         directory_counts = {}
         ignore_list = self.config_manager.get_shared_directory_ignore_list()
+        
+        # ignore_list always contains at least implicit ignores (.freight, .ssh)
+        # No need to check for None anymore
         
         # Find all immediate subdirectories, excluding .freight
         subdirs = [d for d in self.migration_root.iterdir() if d.is_dir() and d.name != '.freight']
@@ -346,6 +346,13 @@ class FreightOrchestrator:
         threshold = self.config_manager.get_shared_directory_threshold()
         ignore_list = self.config_manager.get_shared_directory_ignore_list()
         
+        if threshold is None:
+            print(f"{Colors.RED}Error:{Colors.END} Cannot read shared_directory_threshold from config.")
+            print(f"Please ensure {Colors.CYAN}{self.config_manager.global_config_path}{Colors.END} exists and contains clean.shared_directory_threshold")
+            sys.exit(1)
+        
+        # ignore_list always contains at least implicit ignores, no need to check for None
+        
         # Use DisplayManager to show shared directories
         display_manager = DisplayManager(self.migration_root, self.scan_results)
         display_manager.display_shared_directories(directory_counts, threshold, ignore_list)
@@ -356,11 +363,16 @@ class FreightOrchestrator:
         return self.config_manager.ensure_global_config(migration_root)
     
     def get_shared_directory_threshold(self) -> int:
-        """Get shared directory threshold from config"""
-        return self.config_manager.get_shared_directory_threshold()
+        """Get shared directory threshold from config or fail gracefully"""
+        threshold = self.config_manager.get_shared_directory_threshold()
+        if threshold is None:
+            print(f"{Colors.RED}Error:{Colors.END} Cannot read shared_directory_threshold from config.")
+            print(f"Please ensure {Colors.CYAN}{self.config_manager.global_config_path}{Colors.END} exists and contains clean.shared_directory_threshold")
+            sys.exit(1)
+        return threshold
     
     def get_shared_directory_ignore_list(self) -> List[str]:
-        """Get shared directory ignore list from config"""
+        """Get shared directory ignore list (implicit + additional from config)"""
         return self.config_manager.get_shared_directory_ignore_list()
     
     def _migrate_directory_with_progress(self, source_dir: Path, dest_dir: Path, directory_name: str, 

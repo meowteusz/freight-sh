@@ -174,7 +174,15 @@ class DisplayManager:
         print(f"Root: {Colors.WHITE}{self.migration_root}{Colors.END}")
         
         if ignore_list:
-            print(f"Ignoring: {Colors.YELLOW}{', '.join(ignore_list)}{Colors.END}")
+            # Separate implicit vs user-configured ignores for clarity
+            implicit_ignores = ['.freight', '.ssh']
+            user_ignores = [d for d in ignore_list if d not in implicit_ignores]
+            
+            if user_ignores:
+                print(f"Ignoring: {Colors.YELLOW}{', '.join(ignore_list)}{Colors.END}")
+                print(f"  {Colors.CYAN}(.freight and .ssh are always ignored){Colors.END}")
+            else:
+                print(f"Ignoring: {Colors.YELLOW}.freight, .ssh{Colors.END} {Colors.CYAN}(always ignored){Colors.END}")
         
         if not directory_counts:
             print(f"\n{Colors.YELLOW}No directories found in subdirectories.{Colors.END}")
