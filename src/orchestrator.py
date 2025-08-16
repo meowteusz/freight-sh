@@ -5,6 +5,9 @@ Core orchestrator for Freight NFS Migration Suite
 import json
 import subprocess
 import sys
+import time
+import threading
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -360,6 +363,137 @@ class FreightOrchestrator:
         """Get shared directory ignore list from config"""
         return self.config_manager.get_shared_directory_ignore_list()
     
+    def _migrate_directory_with_progress(self, source_dir: Path, dest_dir: Path, directory_name: str, 
+                                       current_index: int, total_dirs: int, expected_size: int, 
+                                       expected_files: int) -> bool:
+        """Migrate a single directory with background rsync and progress monitoring"""
+        
+        # Get rsync flags from config
+        try:
+            with open(self.config_manager.global_config_path, 'r') as f:
+                config = json.load(f)
+            rsync_flags = config.get('migrate', {}).get(
+                'rsync_flags', '-avxHAX --numeric-ids --compress --partial --info=progress2'
+            )
+        except (FileNotFoundError, json.JSONDecodeError):
+            rsync_flags = '-avxHAX --numeric-ids --compress --partial --info=progress2'
+        
+        rsync_flags += ' --stats'  # Always add stats for parsing
+        
+        # Create destination parent if needed
+        dest_dir.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Display initial progress header
+        print(f"\n{Colors.BOLD}[{current_index:3d}/{total_dirs}] {directory_name}{Colors.END}")
+        print(f"  Size: {Colors.WHITE}{self._format_size(expected_size)}{Colors.END}")
+        print(f"  Files: {Colors.WHITE}{expected_files:,}{Colors.END}")
+        print(f"  Progress: {Colors.CYAN}Starting...{Colors.END}")
+        
+        # Start rsync process in background
+        start_time = time.time()
+        cmd = f'rsync {rsync_flags} "{source_dir}/" "{dest_dir}/"'
+        
+        try:
+            process = subprocess.Popen(
+                cmd,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1
+            )
+            
+            # Variables for progress tracking
+            last_update_time = time.time()
+            transferred_bytes = 0
+            transferred_files = 0
+            total_progress = ""
+            
+            # Monitor process output for progress updates
+            if process.stdout:
+                for line in process.stdout:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    # Parse progress2 format: "transferred/total (progress%) rate time"
+                    progress_match = re.search(r'(\d+(?:,\d+)*)\s+(\d+)%\s+(\d+(?:\.\d+)?[KMGT]?B/s)', line)
+                    if progress_match:
+                        bytes_str = progress_match.group(1).replace(',', '')
+                        percentage = progress_match.group(2)
+                        rate = progress_match.group(3)
+                        
+                        transferred_bytes = int(bytes_str) if bytes_str.isdigit() else 0
+                        
+                        # Calculate estimated time remaining
+                        elapsed = time.time() - start_time
+                        if transferred_bytes > 0 and expected_size > 0:
+                            progress_ratio = transferred_bytes / expected_size
+                            if progress_ratio > 0:
+                                eta_seconds = (elapsed / progress_ratio) - elapsed
+                                eta_str = self._format_time(eta_seconds)
+                            else:
+                                eta_str = "calculating..."
+                        else:
+                            eta_str = "calculating..."
+                        
+                        # Update progress line (overwrite previous)
+                        progress_line = f"  Progress: {Colors.CYAN}{percentage}%{Colors.END} | {Colors.WHITE}{rate}{Colors.END} | ETA: {Colors.YELLOW}{eta_str}{Colors.END}"
+                        print(f"\r{progress_line}", end="", flush=True)
+                        
+                        last_update_time = time.time()
+                    
+                    # Also check for final statistics
+                    elif "Number of files transferred:" in line:
+                        files_match = re.search(r'Number of files transferred:\s*(\d+)', line)
+                        if files_match:
+                            transferred_files = int(files_match.group(1))
+                    
+                    elif "Total transferred file size:" in line:
+                        size_match = re.search(r'Total transferred file size:\s*(\d+(?:,\d+)*)', line)
+                        if size_match:
+                            transferred_bytes = int(size_match.group(1).replace(',', ''))
+            
+            # Wait for process completion
+            return_code = process.wait()
+            
+            # Clear the progress line and show final result
+            print(f"\r{'':80}", end="\r")  # Clear line
+            
+            if return_code == 0:
+                elapsed_time = time.time() - start_time
+                print(f"  {Colors.GREEN}✓ Completed{Colors.END} in {Colors.WHITE}{self._format_time(elapsed_time)}{Colors.END}")
+                if transferred_files > 0:
+                    print(f"    Files: {Colors.WHITE}{transferred_files:,}{Colors.END} | Size: {Colors.WHITE}{self._format_size(transferred_bytes)}{Colors.END}")
+                return True
+            else:
+                print(f"  {Colors.RED}✗ Failed{Colors.END} (exit code: {return_code})")
+                return False
+                
+        except Exception as e:
+            print(f"  {Colors.RED}✗ Error: {e}{Colors.END}")
+            return False
+    
+    def _format_size(self, size_bytes: int) -> str:
+        """Format bytes as human readable size"""
+        size = float(size_bytes)
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size < 1024.0:
+                return f"{size:.1f}{unit}"
+            size /= 1024.0
+        return f"{size:.1f}PB"
+    
+    def _format_time(self, seconds: float) -> str:
+        """Format seconds as human readable time"""
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        elif seconds < 3600:
+            return f"{seconds/60:.0f}m{seconds%60:.0f}s"
+        else:
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            return f"{hours:.0f}h{minutes:.0f}m"
+    
     def run_migration(self, confirmed: bool = False) -> None:
         """Execute migration of all directories smallest to largest (dry-run by default)"""
         # Check dependencies for migration
@@ -409,36 +543,28 @@ class FreightOrchestrator:
         failed_migrations = 0
         failed_dirs = []
         
-        # Path to freight-migrate.sh script
-        migrate_script = self.script_dir / 'scripts' / 'freight-migrate.sh'
-        if not migrate_script.exists():
-            raise FileNotFoundError(f"freight-migrate.sh not found: {migrate_script}")
+        # Using built-in Python migration with progress monitoring
         
         for i, scan_result in enumerate(sorted_dirs, 1):
             source_dir = Path(scan_result.directory)
             dest_dir = Path(dest_path) / source_dir.name
             
-            print(f"\n[{i:3d}/{total_dirs}] Migrating {source_dir.name}...")
-            print(f"  Size: {scan_result.format_size()}")
-            print(f"  Files: {scan_result.file_count:,}")
-            print(f"  Source: {source_dir}")
-            print(f"  Destination: {dest_dir}")
+            # Use new background progress migration
+            success = self._migrate_directory_with_progress(
+                source_dir=source_dir,
+                dest_dir=dest_dir,
+                directory_name=source_dir.name,
+                current_index=i,
+                total_dirs=total_dirs,
+                expected_size=scan_result.size_bytes,
+                expected_files=scan_result.file_count
+            )
             
-            try:
-                # Run freight-migrate.sh on this directory
-                result = subprocess.run(
-                    [str(migrate_script), str(source_dir), str(dest_dir), str(self.migration_root)],
-                    check=True
-                )
-                print(f"  {Colors.GREEN}✓ Migration completed{Colors.END}")
+            if success:
                 successful_migrations += 1
-                
-            except subprocess.CalledProcessError as e:
-                print(f"  {Colors.RED}✗ Migration failed{Colors.END}")
+            else:
                 failed_migrations += 1
                 failed_dirs.append(source_dir.name)
-                # Continue with other directories instead of stopping
-                continue
         
         # Display final summary
         print(f"\n{Colors.BOLD}{Colors.CYAN}Migration Summary{Colors.END}")

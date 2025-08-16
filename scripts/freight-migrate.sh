@@ -101,12 +101,12 @@ migrate_directory() {
     local error_message=""
     
     # Default rsync flags (can be overridden from config)
-    local rsync_flags="-avxHAX --numeric-ids --compress --partial --progress --stats"
+    local rsync_flags="-avxHAX --numeric-ids --compress --partial --info=progress2 --stats"
     
     # Try to read rsync flags from migration root config if available
     if [[ -n "$migration_root" && -f "$migration_root/.freight/config.json" ]]; then
         local config_flags
-        config_flags=$(jq -r '.migrate.rsync_flags // "-avxHAX --numeric-ids --compress --partial --progress --stats"' "$migration_root/.freight/config.json" 2>/dev/null || echo "")
+        config_flags=$(jq -r '.migrate.rsync_flags // "-avxHAX --numeric-ids --compress --partial --info=progress2 --stats"' "$migration_root/.freight/config.json" 2>/dev/null || echo "")
         if [[ -n "$config_flags" ]]; then
             rsync_flags="$config_flags --stats"
         fi
