@@ -30,7 +30,7 @@ from fastapi.responses import JSONResponse
 # Add the freight package to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from freight.orchestrator import FreightOrchestrator
+from src.orchestrator import FreightOrchestrator
 
 app = FastAPI(title="Freight API", description="NFS Migration Suite API", version="1.0.0")
 

@@ -10,8 +10,8 @@ VERSION="1.0.0"
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 
 # Source shared libraries
-source "$SCRIPT_DIR/freight-lib/logging.sh"
-source "$SCRIPT_DIR/freight-lib/json-utils.sh"
+source "$SCRIPT_DIR/utils/logging.sh"
+source "$SCRIPT_DIR/utils/json-utils.sh"
 
 
 
@@ -29,7 +29,7 @@ Options:
 Examples:
     $SCRIPT_NAME                  # Uses global config, dry run (default)
     $SCRIPT_NAME --confirm        # Uses global config, real run
-    $SCRIPT_NAME /nfs1/students --confirm   # Uses explicit migration root, real run
+    $SCRIPT_NAME /nfs1/students --confirm   # Uses explicit directory, real run
 EOF
 }
 

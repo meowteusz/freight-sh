@@ -10,8 +10,8 @@ VERSION="1.0.0"
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 
 # Source shared libraries
-source "$SCRIPT_DIR/freight-lib/logging.sh"
-source "$SCRIPT_DIR/freight-lib/json-utils.sh"
+source "$SCRIPT_DIR/utils/logging.sh"
+source "$SCRIPT_DIR/utils/json-utils.sh"
 
 usage() {
     cat << EOF

@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Freight NFS Migration Suite - Main Entry Point
+# Simple bash wrapper that calls the Python freight module
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+
+# Set PYTHONPATH to include the script directory so the freight module can be found
+export PYTHONPATH="$SCRIPT_DIR:${PYTHONPATH:-}"
+
+# Change to script directory to ensure relative imports work
+cd "$SCRIPT_DIR"
+
+# Call the Python module with all arguments passed through
+exec python3 -m src.main "$@"
