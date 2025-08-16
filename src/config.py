@@ -57,7 +57,7 @@ class ConfigManager:
             },
             "migrate": {
                 "last_migrate_time": None,
-                "rsync_flags": "-avxHAX --numeric-ids --compress --partial --info=progress2",
+                "rsync_flags": "-avxHA --numeric-ids --compress --partial --info=progress2",
 
                 "large_dir_threshold_bytes": 3221225472
             }

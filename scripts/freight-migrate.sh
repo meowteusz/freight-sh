@@ -100,17 +100,22 @@ migrate_directory() {
     local files_transferred=0
     local error_message=""
     
-    # Default rsync flags (can be overridden from config)
-    local rsync_flags="-avxHAX --numeric-ids --compress --partial --info=progress2 --stats"
-    
-    # Try to read rsync flags from migration root config if available
-    if [[ -n "$migration_root" && -f "$migration_root/.freight/config.json" ]]; then
-        local config_flags
-        config_flags=$(jq -r '.migrate.rsync_flags // "-avxHAX --numeric-ids --compress --partial --info=progress2 --stats"' "$migration_root/.freight/config.json" 2>/dev/null || echo "")
-        if [[ -n "$config_flags" ]]; then
-            rsync_flags="$config_flags --stats"
-        fi
+    # Get rsync flags from global config (required)
+    local config_path="$(dirname "$SCRIPT_DIR")/config.json"
+    local rsync_flags=""
+    if [[ -f "$config_path" ]]; then
+        rsync_flags=$(jq -r '.migrate.rsync_flags // empty' "$config_path" 2>/dev/null || echo "")
     fi
+    
+    if [[ -z "$rsync_flags" ]]; then
+        log_error "No rsync_flags found in global configuration"
+        log_error "Expected config location: $config_path"
+        log_error "Please run 'freight init' or ensure config contains migrate.rsync_flags"
+        exit 1
+    fi
+    
+    # Always add stats for parsing
+    rsync_flags="$rsync_flags --stats"
     
     # Execute rsync with progress display
     local rsync_output=""

@@ -368,15 +368,17 @@ class FreightOrchestrator:
                                        expected_files: int) -> bool:
         """Migrate a single directory with background rsync and progress monitoring"""
         
-        # Get rsync flags from config
+        # Get rsync flags from config (required)
         try:
             with open(self.config_manager.global_config_path, 'r') as f:
                 config = json.load(f)
-            rsync_flags = config.get('migrate', {}).get(
-                'rsync_flags', '-avxHAX --numeric-ids --compress --partial --info=progress2'
-            )
-        except (FileNotFoundError, json.JSONDecodeError):
-            rsync_flags = '-avxHAX --numeric-ids --compress --partial --info=progress2'
+            rsync_flags = config.get('migrate', {}).get('rsync_flags')
+            if not rsync_flags:
+                raise ValueError("No rsync_flags configured in migrate section")
+        except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
+            print(f"{Colors.RED}Error: Failed to load rsync flags from config: {e}{Colors.END}")
+            print(f"Please ensure {Colors.CYAN}{self.config_manager.global_config_path}{Colors.END} exists and contains migrate.rsync_flags")
+            raise
         
         rsync_flags += ' --stats'  # Always add stats for parsing
         
