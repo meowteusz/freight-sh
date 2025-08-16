@@ -453,7 +453,8 @@ class FreightOrchestrator:
                         
                         # Update progress line (overwrite previous)
                         progress_line = f"  Progress: {Colors.CYAN}{percentage}%{Colors.END} | {Colors.WHITE}{rate}{Colors.END} | ETA: {Colors.YELLOW}{eta_str}{Colors.END}"
-                        print(f"\r{progress_line}", end="", flush=True)
+                        # Clear the line first, then write new content
+                        print(f"\r{progress_line:<80}", end="", flush=True)
                         
                         last_update_time = time.time()
                     
