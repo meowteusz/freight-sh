@@ -144,11 +144,6 @@ class ConfigManager:
     
     def init_freight_root(self, root_path: Optional[str] = None) -> None:
         """Initialize a freight root directory with global config"""
-        if root_path is None:
-            root_path = os.getcwd()
-        
-        root_dir = Path(root_path).resolve()
-        
         # Check if config.json already exists in the same directory as freight.py
         if self.global_config_path.exists():
             print(f"{Colors.RED}✗{Colors.END} Freight has already been initialized!")
@@ -160,10 +155,45 @@ class ConfigManager:
             print(f"    {Colors.YELLOW}freight.py init{Colors.END}")
             sys.exit(1)
         
-        # Prompt for destination path
         print(f"\n{Colors.BOLD}{Colors.CYAN}Initializing Freight Migration{Colors.END}")
-        print(f"Source directory: {Colors.WHITE}{root_dir}{Colors.END}")
         
+        # Prompt for source directory
+        current_dir = os.getcwd()
+        
+        while True:
+            if root_path is None:
+                source_input = input(f"\n{Colors.YELLOW}Enter source directory (press Enter for current directory '{current_dir}' or use '.'):{Colors.END} ").strip()
+                if source_input == "" or source_input == ".":
+                    root_dir = Path(current_dir).resolve()
+                else:
+                    root_dir = Path(source_input).resolve()
+            else:
+                root_dir = Path(root_path).resolve()
+            
+            print(f"Source directory: {Colors.WHITE}{root_dir}{Colors.END}")
+            
+            # Verify source directory exists
+            if not root_dir.exists():
+                print(f"{Colors.RED}Error: Source directory does not exist: {root_dir}{Colors.END}")
+                if root_path is not None:
+                    sys.exit(1)
+                continue
+            
+            if not root_dir.is_dir():
+                print(f"{Colors.RED}Error: Source path is not a directory: {root_dir}{Colors.END}")
+                if root_path is not None:
+                    sys.exit(1)
+                continue
+            
+            # If root_path was specified via command line, don't ask for confirmation on source
+            if root_path is None:
+                confirm_source = input(f"\n{Colors.YELLOW}Use this source directory? (Y/n):{Colors.END} ").strip().lower()
+                if confirm_source in ['n', 'no']:
+                    continue
+            
+            break
+        
+        # Prompt for destination path
         while True:
             dest_path = input(f"\n{Colors.YELLOW}Enter destination path for migration:{Colors.END} ").strip()
             if dest_path:
