@@ -18,15 +18,21 @@ create_migrate_json() {
     local status="$1"
     local bytes_transferred="$2"
     local files_transferred="$3"
-    local start_time="$4"
-    local end_time="$5"
-    local error_message="${6:-}"
+    local total_files="$4"
+    local dirs_created="$5"
+    local total_dirs="$6"
+    local start_time="$7"
+    local end_time="$8"
+    local error_message="${9:-}"
     
     jq -n \
         --arg start_time "$start_time" \
         --arg end_time "$end_time" \
         --argjson bytes_transferred "$bytes_transferred" \
         --argjson files_transferred "$files_transferred" \
+        --argjson total_files "$total_files" \
+        --argjson dirs_created "$dirs_created" \
+        --argjson total_dirs "$total_dirs" \
         --arg status "$status" \
         --arg error_message "$error_message" \
         --arg version "$VERSION" \
@@ -35,6 +41,9 @@ create_migrate_json() {
             end_time: $end_time,
             bytes_transferred: $bytes_transferred,
             files_transferred: $files_transferred,
+            total_files: $total_files,
+            dirs_created: $dirs_created,
+            total_dirs: $total_dirs,
             status: $status,
             error_message: $error_message,
             version: $version
@@ -45,7 +54,10 @@ create_migrate_json() {
 parse_rsync_stats() {
     local rsync_output="$1"
     local bytes_transferred=0
-    local files_transferred=0
+    local reg_files_transferred=0
+    local total_files=0
+    local dirs_created=0
+    local total_dirs=0
     
     # Extract stats from rsync output
     if echo "$rsync_output" | grep -q "Total transferred file size:"; then
@@ -53,10 +65,25 @@ parse_rsync_stats() {
     fi
     
     if echo "$rsync_output" | grep -q "Number of regular files transferred:"; then
-        files_transferred=$(echo "$rsync_output" | grep "Number of regular files transferred:" | awk '{print $6}' | tr -d ',')
+        reg_files_transferred=$(echo "$rsync_output" | grep "Number of regular files transferred:" | awk '{print $6}' | tr -d ',')
     fi
     
-    echo "$bytes_transferred $files_transferred"
+    # Extract total files from "Number of files: 774 (reg: 539, dir: 234, special: 1)"
+    if echo "$rsync_output" | grep -q "Number of files:"; then
+        total_files=$(echo "$rsync_output" | grep "Number of files:" | awk '{print $4}' | tr -d ',')
+    fi
+    
+    # Extract created directories from "Number of created files: 774 (reg: 539, dir: 234, special: 1)"
+    if echo "$rsync_output" | grep -q "Number of created files:.*dir:"; then
+        dirs_created=$(echo "$rsync_output" | grep "Number of created files:" | sed 's/.*dir: \([0-9]*\).*/\1/')
+    fi
+    
+    # Extract total directories from "Number of files: 774 (reg: 539, dir: 234, special: 1)"
+    if echo "$rsync_output" | grep -q "Number of files:.*dir:"; then
+        total_dirs=$(echo "$rsync_output" | grep "Number of files:" | sed 's/.*dir: \([0-9]*\).*/\1/')
+    fi
+    
+    echo "$bytes_transferred $reg_files_transferred $total_files $dirs_created $total_dirs"
 }
 
 # Main migration function
@@ -98,6 +125,9 @@ migrate_directory() {
     local status="failed"
     local bytes_transferred=0
     local files_transferred=0
+    local total_files=0
+    local dirs_created=0
+    local total_dirs=0
     local error_message=""
     
     # Get rsync flags from global config (required)
@@ -130,7 +160,7 @@ migrate_directory() {
         
         # Parse rsync statistics
         rsync_output=$(cat "$rsync_temp_file")
-        read -r bytes_transferred files_transferred <<< "$(parse_rsync_stats "$rsync_output")"
+        read -r bytes_transferred files_transferred total_files dirs_created total_dirs <<< "$(parse_rsync_stats "$rsync_output")"
         
     else
         status="failed"
@@ -145,7 +175,7 @@ migrate_directory() {
     
     # Create migration log
     local migrate_json
-    migrate_json=$(create_migrate_json "$status" "$bytes_transferred" "$files_transferred" "$start_time" "$end_time" "$error_message")
+    migrate_json=$(create_migrate_json "$status" "$bytes_transferred" "$files_transferred" "$total_files" "$dirs_created" "$total_dirs" "$start_time" "$end_time" "$error_message")
     
     # Save migration log
     local migrate_log="$freight_dir/migrate.json"
@@ -157,7 +187,8 @@ migrate_directory() {
     echo
     log_info "Migration Summary:"
     log_info "  Status: $status"
-    log_info "  Files transferred: $files_transferred"
+    log_info "  Files transferred: $files_transferred/$total_files"
+    log_info "  Directories created: $dirs_created/$total_dirs"
     log_info "  Bytes transferred: $bytes_transferred"
     log_info "  Duration: $start_time to $end_time"
     
