@@ -64,23 +64,26 @@ parse_rsync_stats() {
         bytes_transferred=$(echo "$rsync_output" | grep "Total transferred file size:" | awk '{print $5}' | tr -d ',')
     fi
     
-    if echo "$rsync_output" | grep -q "Number of regular files transferred:"; then
-        reg_files_transferred=$(echo "$rsync_output" | grep "Number of regular files transferred:" | awk '{print $6}' | tr -d ',')
+
+    
+    # Extract total regular files from source: "Number of files: 774 (reg: 539, dir: 234, special: 1)"
+    if echo "$rsync_output" | grep -q "Number of files:.*reg:"; then
+        total_files=$(echo "$rsync_output" | grep "Number of files:" | sed 's/.*reg: \([0-9]*\).*/\1/')
     fi
     
-    # Extract total files from "Number of files: 774 (reg: 539, dir: 234, special: 1)"
-    if echo "$rsync_output" | grep -q "Number of files:"; then
-        total_files=$(echo "$rsync_output" | grep "Number of files:" | awk '{print $4}' | tr -d ',')
+    # Extract created regular files: "Number of created files: 774 (reg: 539, dir: 234, special: 1)"
+    if echo "$rsync_output" | grep -q "Number of created files:.*reg:"; then
+        reg_files_transferred=$(echo "$rsync_output" | grep "Number of created files:" | sed 's/.*reg: \([0-9]*\).*/\1/')
     fi
     
-    # Extract created directories from "Number of created files: 774 (reg: 539, dir: 234, special: 1)"
-    if echo "$rsync_output" | grep -q "Number of created files:.*dir:"; then
-        dirs_created=$(echo "$rsync_output" | grep "Number of created files:" | sed 's/.*dir: \([0-9]*\).*/\1/')
-    fi
-    
-    # Extract total directories from "Number of files: 774 (reg: 539, dir: 234, special: 1)"
+    # Extract total directories from source: "Number of files: 774 (reg: 539, dir: 234, special: 1)"
     if echo "$rsync_output" | grep -q "Number of files:.*dir:"; then
         total_dirs=$(echo "$rsync_output" | grep "Number of files:" | sed 's/.*dir: \([0-9]*\).*/\1/')
+    fi
+    
+    # Extract created directories: "Number of created files: 774 (reg: 539, dir: 234, special: 1)"
+    if echo "$rsync_output" | grep -q "Number of created files:.*dir:"; then
+        dirs_created=$(echo "$rsync_output" | grep "Number of created files:" | sed 's/.*dir: \([0-9]*\).*/\1/')
     fi
     
     echo "$bytes_transferred $reg_files_transferred $total_files $dirs_created $total_dirs"
