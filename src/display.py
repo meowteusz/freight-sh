@@ -4,6 +4,7 @@ Display and formatting functions for Freight NFS Migration Suite
 
 import os
 import re
+from pathlib import Path
 from typing import List, Dict, Any
 
 from .utils import Colors, format_size
@@ -196,7 +197,6 @@ class DisplayManager:
         print('-' * 50)
         
         # Calculate total subdirs (excluding .freight)
-        from pathlib import Path
         total_subdirs = len([d for d in Path(self.migration_root).iterdir() if d.is_dir() and d.name != '.freight'])
         
         for dir_name, count in sorted_shared:

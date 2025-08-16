@@ -4,6 +4,7 @@ Main CLI entry point for Freight NFS Migration Suite
 
 import argparse
 import os
+import subprocess
 import sys
 
 from .utils import Colors
@@ -205,8 +206,6 @@ Examples:
             
         elif args.command == 'serve':
             # Start FastAPI server
-            import subprocess
-            import os
             
             # Path to freight-api.py script
             api_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'freight-api.py')

@@ -3,6 +3,7 @@ Configuration management for Freight NFS Migration Suite
 """
 
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -143,8 +144,6 @@ class ConfigManager:
     
     def init_freight_root(self, root_path: Optional[str] = None) -> None:
         """Initialize a freight root directory with global config"""
-        import os
-        
         if root_path is None:
             root_path = os.getcwd()
         
