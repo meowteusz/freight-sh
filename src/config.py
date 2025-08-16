@@ -162,8 +162,8 @@ class ConfigManager:
         
         while True:
             if root_path is None:
-                source_input = input(f"\n{Colors.YELLOW}Enter source directory (press Enter for current directory '{current_dir}' or use '.'):{Colors.END} ").strip()
-                if source_input == "" or source_input == ".":
+                source_input = input(f"\n{Colors.YELLOW}Enter source directory (press Enter for current directory):{Colors.END} ").strip()
+                if source_input == "":
                     root_dir = Path(current_dir).resolve()
                 else:
                     root_dir = Path(source_input).resolve()
