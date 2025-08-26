@@ -1,4 +1,5 @@
 .DS_Store
+exclude_dirs.txt
 
 # Python cache files
 __pycache__/
